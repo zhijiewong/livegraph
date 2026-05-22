@@ -8,7 +8,7 @@
 
 ## 1. Overview
 
-`livegraph` is a local command-line tool that builds a knowledge graph of a **Python codebase** in a Memgraph graph database, fusing two sources of truth:
+`livegraph` is a local command-line tool that builds a knowledge graph of a **Python codebase** in a graph database (Neo4j by default, behind a swappable backend adapter), fusing two sources of truth:
 
 - **Static analysis** — parse every `.py` file with tree-sitter and extract structure (files, classes, functions, methods, imports) and best-effort call edges.
 - **Runtime observation** — run the target project's `pytest` suite under instrumentation, capture the calls that *actually executed* and per-test coverage, and merge them into the same graph.
@@ -17,11 +17,11 @@ Every relationship in the graph carries **provenance**: whether a fact came from
 
 ## 2. Background & Rationale
 
-The original idea was a static Graph-RAG daemon: tree-sitter → Memgraph → MCP server. Research found that space is already well served by mature, open-source, MCP-native tools (`code-graph-rag`, `CodeGraphContext`, `GitNexus`, `Blarify`, `Potpie`, `Serena`, Aider's repo-map). Building another static graph tool would be an undifferentiated entry in a crowded field.
+The original idea was a static Graph-RAG daemon: tree-sitter → graph database → MCP server. Research found that space is already well served by mature, open-source, MCP-native tools (`code-graph-rag`, `CodeGraphContext`, `GitNexus`, `Blarify`, `Potpie`, `Serena`, Aider's repo-map). Building another static graph tool would be an undifferentiated entry in a crowded field.
 
 The clear white space: **every one of those tools is static-only.** They infer call edges by name-matching the AST, which research repeatedly shows is unreliable for dynamic dispatch, decorators, DI, and reflection. None of them incorporate runtime data — actual executed call paths, test coverage, test→symbol links — even though that data is produced by any test run.
 
-`livegraph`'s differentiator is **static + runtime fusion**. Runtime traces do not merely add data; they *fix the accuracy problem*: a call static analysis cannot resolve is trivially resolved by observing one test run. This attacks the field's two most-cited weaknesses (static-only graphs, inaccurate call graphs) at once, and maps cleanly onto a local Python / tree-sitter / Memgraph stack.
+`livegraph`'s differentiator is **static + runtime fusion**. Runtime traces do not merely add data; they *fix the accuracy problem*: a call static analysis cannot resolve is trivially resolved by observing one test run. This attacks the field's two most-cited weaknesses (static-only graphs, inaccurate call graphs) at once, and maps cleanly onto a local Python / tree-sitter / graph-database stack.
 
 ## 3. Scope
 
@@ -29,7 +29,7 @@ The clear white space: **every one of those tools is static-only.** They infer c
 
 - Phase 1 — static graph construction for Python source.
 - Phase 2 — runtime augmentation from the target's `pytest` suite.
-- CLI, configuration, Docker-based Memgraph infrastructure, testing.
+- CLI, configuration, Docker-based Neo4j infrastructure, testing.
 
 **Out of scope (future Phase 3, separate spec):**
 
@@ -51,19 +51,23 @@ A Rust/C++ host would only help Phase 1 parsing and Bolt serialization — the t
 **Stack:**
 
 - `tree-sitter` + `tree-sitter-python` — parsing, with extraction driven by `.scm` query files so traversal stays in C.
-- `neo4j` driver + `neo4j-rust-ext` — Bolt protocol to Memgraph. `neo4j-rust-ext` is a drop-in `pip install` giving 1.5–4× faster writes (Rust-accelerated PackStream encoding) with no code or build complexity.
+- `neo4j` driver + `neo4j-rust-ext` — Bolt protocol to Neo4j. `neo4j-rust-ext` is Neo4j's own drop-in `pip install` accelerator, giving 1.5–4× faster writes (Rust-accelerated PackStream encoding) with no code or build complexity — it offsets Neo4j's relatively slower bulk-MERGE ingestion.
 - `coverage.py` — per-test coverage via dynamic contexts (its `ctrace` core — the `sysmon` core does not support contexts).
 - `sys.monitoring` (PEP 669) — call-edge capture, under a dedicated tool ID.
 - `pytest` — the runtime entrypoint; a `livegraph` plugin provides per-test boundaries.
 - `pydantic` / `pydantic-settings` — typed configuration from `.env`.
 - `typer` — CLI.
-- Memgraph via Docker Compose (the standard `memgraph/memgraph` image).
+- Neo4j via Docker Compose (the official `neo4j` image, which bundles Neo4j Browser for graph visualization).
+
+**Graph-database choice.** Neo4j is the v1 backend: it is the most mature option, with the best Python driver and documentation — a real asset for a first build. It is server-based (a Docker container `livegraph` talks to over Bolt); its one weakness, slower bulk-MERGE ingestion, is irrelevant at v1 scale (thousands of nodes) and further offset by `neo4j-rust-ext`. All database access goes through a `GraphBackend` adapter (see Section 5) so the backend can be swapped later — e.g. to an embedded database once a stable one exists — without touching ingestion code.
 
 Code is strictly typed (`mypy` strict), heavily commented, and modular.
 
 ## 5. Architecture & Module Layout
 
 Two phases write to one graph. Phase 1 creates static nodes and edges; Phase 2 enriches the *same* nodes — setting `runtime` flags, adding `Test` labels, and writing coverage. `build` runs both.
+
+All database access is mediated by a `GraphBackend` adapter interface in `graph/backend.py`. v1 ships a single Neo4j implementation; `ingest.py`, `augment.py`, and `writer.py` depend only on the interface, so the backend can later be swapped without touching ingestion logic.
 
 ```
 livegraph/
@@ -74,7 +78,8 @@ livegraph/
     ingest.py           Phase 1 orchestrator
     augment.py          Phase 2 orchestrator
     graph/
-      client.py         Memgraph connection + session management
+      backend.py        GraphBackend adapter interface + Neo4j implementation
+      client.py         Connection + session management
       schema.py         Label/edge constants, constraint & index setup
       writer.py         Batched UNWIND + MERGE Cypher writes
     static/
@@ -172,12 +177,12 @@ A runtime symbol with no matching Phase 1 node (e.g. from a parse-failed file, o
    - `pytest_unconfigure` — stop monitoring and coverage; dump all observations to a JSON file.
 3. **Tracer** (`runtime/tracer.py`) — `sys.monitoring` callbacks, filtered to project files by filename prefix to keep overhead low. Each event maps `co_filename` + `co_qualname` to a `qualified_name` and records `(caller, callee, current_test, call_site_line)` with counts.
 4. **Coverage adapter** (`runtime/coverage_adapter.py`) — after the run, read per-context (per-test) coverage via the `coverage` API; map covered lines to Function/Method definitions using Phase 1's line spans.
-5. **Merge** — the parent `livegraph` process reads the observations JSON and writes to Memgraph: add the `:Test` label + outcome/duration to test functions; `MERGE` each `CALLS` edge setting `runtime=true`, `observed_count`, `call_site_lines`; create `COVERS` edges with coverage properties; set aggregate coverage properties on Function/Method nodes. Runtime symbols with no Phase 1 node get a minimal `runtime_only=true` node.
+5. **Merge** — the parent `livegraph` process reads the observations JSON and writes to Neo4j: add the `:Test` label + outcome/duration to test functions; `MERGE` each `CALLS` edge setting `runtime=true`, `observed_count`, `call_site_lines`; create `COVERS` edges with coverage properties; set aggregate coverage properties on Function/Method nodes. Runtime symbols with no Phase 1 node get a minimal `runtime_only=true` node.
 
 **Design notes:**
 
 - Phase 2 requires Phase 1 to have run (the nodes must exist to be enriched).
-- The plugin runs in the target's interpreter and cannot share the Memgraph connection — it dumps observations to JSON; the parent process is the single graph writer.
+- The plugin runs in the target's interpreter and cannot share the Neo4j connection — it dumps observations to JSON; the parent process is the single graph writer.
 - Running `coverage.py` (`ctrace`) and the `livegraph` `sys.monitoring` tool together is supported; tracing overhead is the known, accepted cost.
 
 ## 10. CLI, Configuration & Infrastructure
@@ -194,17 +199,17 @@ A runtime symbol with no matching Phase 1 node (e.g. from a parse-failed file, o
 
 ### Configuration (`config.py`, Pydantic Settings, `.env`)
 
-`MEMGRAPH_HOST` (`localhost`), `MEMGRAPH_PORT` (`7687`), `MEMGRAPH_USER` / `MEMGRAPH_PASSWORD` (blank — Memgraph's default is no auth), `LIVEGRAPH_BATCH_SIZE` (`1000`), `LIVEGRAPH_LOG_LEVEL` (`INFO`). `.env.example` is committed; `.env` is gitignored.
+`NEO4J_URI` (`bolt://localhost:7687`), `NEO4J_USER` (`neo4j`), `NEO4J_PASSWORD` (required — Neo4j enforces authentication; `docker-compose.yml` and `.env.example` ship a matching default for local use), `LIVEGRAPH_BATCH_SIZE` (`1000`), `LIVEGRAPH_LOG_LEVEL` (`INFO`). `.env.example` is committed; `.env` is gitignored.
 
 ### Infrastructure
 
-- **`docker-compose.yml`** — `memgraph/memgraph` (standard image) on port `7687` with a named volume for persistence, plus **Memgraph Lab** on port `3000` for visual inspection of the runtime-augmented graph.
+- **`docker-compose.yml`** — the official `neo4j` image, exposing Bolt on `7687` and **Neo4j Browser** on `7474` for visual inspection of the runtime-augmented graph, with named volumes for data persistence. Browser is bundled in the image — no separate container needed.
 - **`pyproject.toml`** — package `livegraph`, Python 3.12+. Runtime deps: `tree-sitter`, `tree-sitter-python`, `neo4j`, `neo4j-rust-ext`, `pydantic`, `pydantic-settings`, `typer`, `coverage`. Dev deps: `pytest`, `mypy` (strict), `ruff`.
 
 ## 11. Error Handling
 
 - **Unparseable file** — warn, create a `File` node with `parse_error=true`, continue.
-- **Memgraph unreachable** — clear fatal message naming the connection target.
+- **Neo4j unreachable** — clear fatal message naming the connection target.
 - **`coverage` missing in target env** — clear message; Phase 2 aborts cleanly; the Phase 1 graph remains valid.
 - **Failing tests in the target suite** — do *not* abort the merge; everything observed is still recorded.
 - **Unmappable runtime frames** — logged and counted in the run summary; never silently dropped.
@@ -215,7 +220,7 @@ A runtime symbol with no matching Phase 1 node (e.g. from a parse-failed file, o
   - `extractor` against fixture `.py` files of known structure.
   - `resolver` — import resolution and static call resolution.
   - The high-risk **qualified-name mapping** (`co_qualname` → `qualified_name`), tested directly against synthetic code objects covering methods, nested functions, decorators, and lambdas.
-- **Integration** (`@pytest.mark.integration`, requires a Docker Memgraph):
+- **Integration** (`@pytest.mark.integration`, requires a Docker Neo4j):
   - Run a full `build` against `tests/fixtures/sample_project/` and assert node/edge counts and provenance flags.
 - **The differentiator test** — `tests/fixtures/sample_project/` contains a deliberate **dynamic-dispatch call** that static analysis cannot resolve. The test asserts that after Phase 2 the graph contains that `CALLS` edge with `static=false, runtime=true`. If this test passes, the project's core premise works.
 
