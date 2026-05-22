@@ -11,7 +11,7 @@
 **Reference:** Design spec at `docs/superpowers/specs/2026-05-23-livegraph-design.md`.
 
 **Conventions for every task:**
-- Run tests from the repo root: `cd ~/livegraph`.
+- Run tests from the repo root: `cd /Users/yvon.zhu/Documents/GitHub/livegraph`.
 - Unit tests need no Docker. Integration tests are marked `@pytest.mark.integration` and need Neo4j running (`docker compose up -d`).
 - Commit after each task with the shown message.
 
@@ -155,7 +155,7 @@ Each file is created empty (zero bytes): `livegraph/__init__.py`, `livegraph/gra
 
 Run:
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 python3.12 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
 ```
@@ -163,13 +163,13 @@ Expected: install completes without error.
 
 - [ ] **Step 8: Verify pytest collects nothing yet**
 
-Run: `cd ~/livegraph && .venv/bin/pytest -q`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest -q`
 Expected: `no tests ran` (exit code 5) — confirms the harness is wired.
 
 - [ ] **Step 9: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add -A
 git commit -m "chore: project scaffolding, packaging, docker-compose"
 ```
@@ -209,7 +209,7 @@ def test_env_overrides(monkeypatch):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_config.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_config.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.config'`.
 
 - [ ] **Step 3: Write `livegraph/config.py`**
@@ -242,13 +242,13 @@ def load_settings() -> Settings:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_config.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_config.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/config.py tests/unit/test_config.py
 git commit -m "feat: typed configuration via pydantic-settings"
 ```
@@ -299,7 +299,7 @@ def test_import_record():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_models.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_models.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.models'`.
 
 - [ ] **Step 3: Write `livegraph/models.py`**
@@ -363,13 +363,13 @@ class CallEdge:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_models.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_models.py -v`
 Expected: PASS (4 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/models.py tests/unit/test_models.py
 git commit -m "feat: static-phase data models"
 ```
@@ -425,7 +425,7 @@ def test_rel_path_outside_root_returns_none(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_qualnames.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_qualnames.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.qualnames'`.
 
 - [ ] **Step 3: Write `livegraph/qualnames.py`**
@@ -481,13 +481,13 @@ def rel_path(abs_path: str, root: str) -> str | None:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_qualnames.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_qualnames.py -v`
 Expected: PASS (6 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/qualnames.py tests/unit/test_qualnames.py
 git commit -m "feat: shared qualified-name identity for static/runtime join"
 ```
@@ -522,7 +522,7 @@ def test_fake_backend_returns_canned_rows():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_backend.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_backend.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.graph.backend'`.
 
 - [ ] **Step 3: Write `livegraph/graph/backend.py`**
@@ -604,13 +604,13 @@ class FakeBackend:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_backend.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_backend.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/graph/backend.py tests/unit/test_backend.py
 git commit -m "feat: swappable GraphBackend adapter with Neo4j and fake impls"
 ```
@@ -651,7 +651,7 @@ def test_create_schema_covers_expected_labels():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_schema.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_schema.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.graph.schema'`.
 
 - [ ] **Step 3: Write `livegraph/graph/schema.py`**
@@ -706,13 +706,13 @@ def create_schema(backend: GraphBackend) -> None:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_schema.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_schema.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/graph/schema.py tests/unit/test_schema.py
 git commit -m "feat: graph schema constants and constraint setup"
 ```
@@ -785,7 +785,7 @@ def test_write_calls_emits_provenance_properties():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_writer.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_writer.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.graph.writer'`.
 
 - [ ] **Step 3: Write `livegraph/graph/writer.py`**
@@ -915,13 +915,13 @@ class GraphWriter:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_writer.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_writer.py -v`
 Expected: PASS (4 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/graph/writer.py tests/unit/test_writer.py
 git commit -m "feat: batched idempotent graph writer"
 ```
@@ -961,7 +961,7 @@ def test_parse_never_raises_on_garbage():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_parser.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_parser.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.static.parser'`.
 
 - [ ] **Step 3: Write `livegraph/static/parser.py`**
@@ -993,13 +993,13 @@ def has_errors(tree: Tree) -> bool:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_parser.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_parser.py -v`
 Expected: PASS (3 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/static/parser.py tests/unit/test_parser.py
 git commit -m "feat: tree-sitter parser wrapper"
 ```
@@ -1084,7 +1084,7 @@ def test_broken_file_yields_empty_results():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_extractor.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_extractor.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.static.extractor'`.
 
 - [ ] **Step 3: Create `livegraph/queries/python.scm`**
@@ -1271,13 +1271,13 @@ def _handle_call(node: Node, source: bytes, scope: str) -> RawCall:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_extractor.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_extractor.py -v`
 Expected: PASS (6 passed). If a capture/field name mismatches the installed grammar, adjust against `tree-sitter-python`'s node types until green — do not weaken the assertions.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/queries/python.scm livegraph/static/extractor.py tests/unit/test_extractor.py
 git commit -m "feat: AST extraction of definitions, imports, and raw calls"
 ```
@@ -1345,7 +1345,7 @@ def test_resolve_calls_drops_unresolved():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_resolver.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_resolver.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.static.resolver'`.
 
 - [ ] **Step 3: Write `livegraph/static/resolver.py`**
@@ -1426,13 +1426,13 @@ def resolve_calls(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_resolver.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_resolver.py -v`
 Expected: PASS (5 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/static/resolver.py tests/unit/test_resolver.py
 git commit -m "feat: best-effort static import and call resolution"
 ```
@@ -1475,7 +1475,7 @@ def test_skips_junk_directories(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_discovery.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_discovery.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.discovery'`.
 
 - [ ] **Step 3: Write `livegraph/discovery.py`**
@@ -1505,7 +1505,7 @@ def discover_python_files(root: str) -> Iterator[str]:
 
 - [ ] **Step 4: Run discovery test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_discovery.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_discovery.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 5: Write the failing ingest test**
@@ -1545,7 +1545,7 @@ def test_ingest_records_parse_errors_without_aborting(tmp_path):
 
 - [ ] **Step 6: Run ingest test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_ingest.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_ingest.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.ingest'`.
 
 - [ ] **Step 7: Write `livegraph/ingest.py`**
@@ -1673,13 +1673,13 @@ def _write_imports(
 
 - [ ] **Step 8: Run ingest test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_ingest.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_ingest.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 9: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/discovery.py livegraph/ingest.py tests/unit/test_discovery.py tests/unit/test_ingest.py
 git commit -m "feat: Phase 1 ingestion orchestrator"
 ```
@@ -1733,7 +1733,7 @@ def test_clean_command_runs_detach_delete(monkeypatch):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_cli.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_cli.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.cli'`.
 
 - [ ] **Step 3: Write `livegraph/cli.py`**
@@ -1817,13 +1817,13 @@ if __name__ == "__main__":  # pragma: no cover
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_cli.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_cli.py -v`
 Expected: PASS (3 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/cli.py tests/unit/test_cli.py
 git commit -m "feat: CLI with ingest, status, and clean commands"
 ```
@@ -1981,20 +1981,20 @@ def test_ingest_is_idempotent(neo4j_backend, sample_project_path):
 
 Run:
 ```bash
-cd ~/livegraph && docker compose up -d && sleep 20
+cd /Users/yvon.zhu/Documents/GitHub/livegraph && docker compose up -d && sleep 20
 .venv/bin/pytest tests/integration/test_phase1_integration.py -v -m integration
 ```
 Expected: PASS (2 passed). If Neo4j is still starting, wait and re-run.
 
 - [ ] **Step 7: Run the full unit suite to confirm nothing regressed**
 
-Run: `cd ~/livegraph && .venv/bin/pytest -m "not integration" -q`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest -m "not integration" -q`
 Expected: all unit tests PASS.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add tests/fixtures tests/integration
 git commit -m "test: sample fixture project and Phase 1 integration tests"
 ```
@@ -2092,7 +2092,7 @@ def test_qid_outside_root_is_none(tmp_path):
 
 - [ ] **Step 3: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_observations.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_observations.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.runtime.observations'`.
 
 - [ ] **Step 4: Write `livegraph/runtime/observations.py`**
@@ -2124,18 +2124,18 @@ def qid_from_code(code: types.CodeType, root: str) -> str | None:
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_observations.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_observations.py -v`
 Expected: PASS (3 passed).
 
 - [ ] **Step 6: Run model tests to confirm no regression**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_models.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_models.py -v`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/models.py livegraph/runtime/observations.py tests/unit/test_observations.py
 git commit -m "feat: runtime models and code-object qualname mapping"
 ```
@@ -2203,7 +2203,7 @@ def test_tracer_ignores_calls_outside_project(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_tracer.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_tracer.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.runtime.tracer'`.
 
 - [ ] **Step 3: Write `livegraph/runtime/tracer.py`**
@@ -2303,13 +2303,13 @@ def _code_of(obj: object) -> types.CodeType | None:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_tracer.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_tracer.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/runtime/tracer.py tests/unit/test_tracer.py
 git commit -m "feat: sys.monitoring-based call tracer"
 ```
@@ -2359,7 +2359,7 @@ def test_only_emits_records_for_covered_definitions():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_coverage_adapter.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_coverage_adapter.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.runtime.coverage_adapter'`.
 
 - [ ] **Step 3: Write `livegraph/runtime/coverage_adapter.py`**
@@ -2406,13 +2406,13 @@ def map_coverage_to_symbols(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_coverage_adapter.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_coverage_adapter.py -v`
 Expected: PASS (3 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/runtime/coverage_adapter.py tests/unit/test_coverage_adapter.py
 git commit -m "feat: coverage-to-symbol attribution"
 ```
@@ -2474,7 +2474,7 @@ def test_plugin_test_qn_uses_nodeid(tmp_path):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_pytest_plugin.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_pytest_plugin.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.runtime.pytest_plugin'`.
 
 - [ ] **Step 3: Write `livegraph/runtime/pytest_plugin.py`**
@@ -2628,13 +2628,13 @@ Note: in `pytest_runtest_logreport` the `report` object carries `nodeid`, so `Li
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_pytest_plugin.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_pytest_plugin.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/runtime/pytest_plugin.py tests/unit/test_pytest_plugin.py
 git commit -m "feat: pytest plugin for runtime tracing and coverage"
 ```
@@ -2692,7 +2692,7 @@ def test_run_pytest_raises_when_coverage_missing(tmp_path, monkeypatch):
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_runner.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_runner.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.runtime.runner'`.
 
 - [ ] **Step 3: Write `livegraph/runtime/runner.py`**
@@ -2772,13 +2772,13 @@ def run_pytest(root: str, python: str | None = None) -> dict[str, Any]:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_runner.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_runner.py -v`
 Expected: PASS (2 passed).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/runtime/runner.py tests/unit/test_runner.py
 git commit -m "feat: subprocess runner for traced pytest execution"
 ```
@@ -2835,7 +2835,7 @@ def test_write_coverage_emits_covers_edges():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_writer_runtime.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_writer_runtime.py -v`
 Expected: FAIL — `AttributeError: 'GraphWriter' object has no attribute 'write_runtime_calls'`.
 
 - [ ] **Step 3: Append runtime write methods to `livegraph/graph/writer.py`**
@@ -2921,7 +2921,7 @@ Add these three methods inside the `GraphWriter` class, after `write_calls`:
 
 - [ ] **Step 4: Run writer test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_writer_runtime.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_writer_runtime.py -v`
 Expected: PASS (3 passed).
 
 - [ ] **Step 5: Write the failing augment test**
@@ -2964,7 +2964,7 @@ def test_augment_writes_calls_tests_and_coverage():
 
 - [ ] **Step 6: Run augment test to verify it fails**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_augment.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_augment.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'livegraph.augment'`.
 
 - [ ] **Step 7: Write `livegraph/augment.py`**
@@ -3063,13 +3063,13 @@ def augment_from_observations(
 
 - [ ] **Step 8: Run augment test to verify it passes**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_augment.py tests/unit/test_writer.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_augment.py tests/unit/test_writer.py -v`
 Expected: PASS (test_augment 1 passed; test_writer still 4 passed).
 
 - [ ] **Step 9: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/graph/writer.py livegraph/augment.py tests/unit/test_writer_runtime.py tests/unit/test_augment.py
 git commit -m "feat: Phase 2 orchestrator and runtime graph writes"
 ```
@@ -3175,7 +3175,7 @@ def test_build_runs_both_phases(tmp_path, monkeypatch):
 
 - [ ] **Step 3: Run the CLI unit tests**
 
-Run: `cd ~/livegraph && .venv/bin/pytest tests/unit/test_cli.py -v`
+Run: `cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest tests/unit/test_cli.py -v`
 Expected: PASS (4 passed).
 
 - [ ] **Step 4: Write `tests/integration/test_phase2_integration.py`**
@@ -3247,7 +3247,7 @@ def test_phase2_writes_test_nodes_and_coverage(
 
 Run:
 ```bash
-cd ~/livegraph && docker compose up -d && sleep 5
+cd /Users/yvon.zhu/Documents/GitHub/livegraph && docker compose up -d && sleep 5
 .venv/bin/pytest tests/integration/test_phase2_integration.py -v -m integration
 ```
 Expected: PASS (2 passed). The first test passing **is the proof the project works**: runtime tracing resolved a call static analysis could not.
@@ -3256,7 +3256,7 @@ Expected: PASS (2 passed). The first test passing **is the proof the project wor
 
 Run:
 ```bash
-cd ~/livegraph && .venv/bin/pytest -m "not integration" -q
+cd /Users/yvon.zhu/Documents/GitHub/livegraph && .venv/bin/pytest -m "not integration" -q
 .venv/bin/pytest -m integration -q
 ```
 Expected: all unit tests PASS; all integration tests PASS.
@@ -3265,7 +3265,7 @@ Expected: all unit tests PASS; all integration tests PASS.
 
 Run:
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 .venv/bin/mypy livegraph
 .venv/bin/ruff check livegraph
 ```
@@ -3274,7 +3274,7 @@ Expected: `mypy` reports no errors; `ruff` reports no errors. Fix any reported i
 - [ ] **Step 8: Commit**
 
 ```bash
-cd ~/livegraph
+cd /Users/yvon.zhu/Documents/GitHub/livegraph
 git add livegraph/cli.py tests/unit/test_cli.py tests/integration/test_phase2_integration.py
 git commit -m "feat: trace and build CLI commands; Phase 2 differentiator test"
 ```
