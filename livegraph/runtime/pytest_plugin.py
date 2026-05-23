@@ -60,11 +60,17 @@ class LivegraphPlugin:
         if self._coverage is not None:
             self._coverage.switch_context(test_qn)
 
-    def after_test(self, item: Any, outcome: str, duration: float) -> None:
-        """Record a finished test's outcome."""
+    def after_test(self, item_or_report: Any, outcome: str,
+                   duration: float) -> None:
+        """Record a finished test's outcome.
+
+        Accepts either a pytest ``Item`` (from production hook
+        ``pytest_runtest_call``) or a ``TestReport`` (from
+        ``pytest_runtest_logreport``). Both expose ``nodeid``.
+        """
         self._tracer.set_current_test(None)
         self._tests.append({
-            "qualified_name": self.test_qn(item),
+            "qualified_name": self.test_qn(item_or_report),
             "outcome": outcome, "duration": duration,
         })
 

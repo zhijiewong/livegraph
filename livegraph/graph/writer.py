@@ -79,8 +79,10 @@ class GraphWriter:
                 "MATCH (caller {qualified_name: row.caller}) "
                 "MATCH (callee {qualified_name: row.callee}) "
                 "MERGE (caller)-[c:CALLS]->(callee) "
-                "SET c.static = row.static, c.runtime = row.runtime, "
-                "    c.observed_count = row.observed_count, "
+                "SET c.static = row.static, "
+                "    c.runtime = coalesce(c.runtime, row.runtime), "
+                "    c.observed_count = coalesce("
+                "        c.observed_count, row.observed_count), "
                 "    c.call_site_lines = row.call_site_lines",
                 rows=rows,
             )

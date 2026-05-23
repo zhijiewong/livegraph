@@ -47,3 +47,15 @@ def test_write_calls_emits_provenance_properties():
     assert "MERGE" in query and ":CALLS" in query
     assert params["rows"][0]["static"] is True
     assert params["rows"][0]["runtime"] is False
+
+
+def test_write_calls_preserves_runtime_provenance_on_reingest():
+    """Phase 1 re-running must not reset c.runtime to false on edges that
+    Phase 2 has marked runtime=true. Achieved via coalesce()."""
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).write_calls(
+        [CallEdge("a.py::f", "a.py::g", static=True, runtime=False)]
+    )
+    query, _params = backend.calls[0]
+    assert "coalesce(c.runtime" in query
+    assert "coalesce(" in query and "c.observed_count" in query
