@@ -10,6 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 from livegraph.graph.backend import GraphBackend
+from livegraph.mcp.cypher_guard import (
+    CypherSyntaxError, CypherTimeoutError,
+    EngineWriteAttemptedError, ForbiddenKeywordError,
+    auto_limit, forbidden_keyword, inject_project,
+)
 from livegraph.mcp.diff_parser import parse_diff
 
 # Labels we treat as a primary "kind" for SymbolRef.
@@ -651,4 +656,245 @@ def _test_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "test_outcome": row.get("test_outcome") or "",
         "covers_symbols": sorted(row.get("covers_symbols") or []),
         "avg_coverage_pct": float(row.get("avg_coverage_pct") or 0.0),
+    }
+
+
+# -- run_cypher -------------------------------------------------------
+
+# Class-name fragments used to categorize neo4j driver exceptions
+# without importing the driver at module load time.
+_SYNTAX_ERROR_NAMES = {"CypherSyntaxError", "InvalidInput"}
+_WRITE_ERROR_CODES = (
+    "Neo.ClientError.Statement.AccessMode",
+    "Neo.ClientError.Statement.SemanticError",
+)
+_TIMEOUT_NAME_FRAGMENTS = ("Timeout", "TimedOut")
+_TIMEOUT_CODE_FRAGMENTS = ("TransactionTimedOut", "Timeout")
+
+
+def _categorize_backend_error(exc: Exception, query: str,
+                              timeout_seconds: int) -> Exception:
+    """Map a backend exception to a typed cypher_guard error.
+
+    Already-typed cypher_guard errors are passed through unchanged.
+    """
+    # Pass-through for our own typed errors.
+    if isinstance(exc, (ForbiddenKeywordError, CypherSyntaxError,
+                        CypherTimeoutError, EngineWriteAttemptedError)):
+        return exc
+
+    name = type(exc).__name__
+    message = str(exc)
+    code = getattr(exc, "code", "") or ""
+
+    if (any(t in name for t in _TIMEOUT_NAME_FRAGMENTS)
+            or any(t in code for t in _TIMEOUT_CODE_FRAGMENTS)
+            or "timed out" in message.lower()
+            or "transaction has been terminated" in message.lower()):
+        return CypherTimeoutError(timeout_seconds, query)
+    if name in _SYNTAX_ERROR_NAMES or "SyntaxError" in name:
+        return CypherSyntaxError(message, query)
+    if code in _WRITE_ERROR_CODES or "writes" in message.lower():
+        return EngineWriteAttemptedError(query)
+    return exc
+
+
+def run_cypher(
+    backend: GraphBackend, project: str, query: str,
+    params: dict[str, Any] | None = None,
+    row_limit: int = 1000, timeout_seconds: int = 30,
+) -> dict[str, Any]:
+    """Run a read-only Cypher query for an agent.
+
+    Pipeline: lexical pre-scan -> $project injection -> auto-LIMIT ->
+    READ transaction -> truncate -> return ``{rows, truncated, row_count,
+    summary}``. Each failure surfaces as a typed ``CypherError`` subclass.
+    """
+    kw = forbidden_keyword(query)
+    if kw is not None:
+        raise ForbiddenKeywordError(kw, query)
+
+    final_params = inject_project(params, project)
+    # Fetch row_limit + 1 so we can tell whether more rows existed.
+    final_query = auto_limit(query, row_limit + 1)
+
+    try:
+        records, summary = backend.execute_read(
+            final_query, timeout_seconds=timeout_seconds, **final_params,
+        )
+    except Exception as exc:
+        raise _categorize_backend_error(exc, final_query, timeout_seconds) \
+            from exc
+
+    truncated = len(records) > row_limit
+    if truncated:
+        records = records[:row_limit]
+
+    return {
+        "rows": records,
+        "truncated": truncated,
+        "row_count": len(records),
+        "summary": summary,
+    }
+
+
+# -- describe_schema --------------------------------------------------
+
+_NEO4J_VERSION_HINT = "5.26+"
+
+_NODE_LABELS_DESCRIPTION: dict[str, dict[str, Any]] = {
+    "Project":  {"key": "name",
+                 "properties": ["name", "root_path"]},
+    "File":     {"key": "path",
+                 "properties": ["path", "name", "language",
+                                "parse_error", "content_hash"]},
+    "Class":    {"key": "qualified_name",
+                 "properties": ["qualified_name", "name", "file",
+                                "start_line", "end_line",
+                                "decorators", "source"]},
+    "Function": {"key": "qualified_name",
+                 "properties": ["qualified_name", "name", "file",
+                                "start_line", "end_line",
+                                "decorators", "source",
+                                "runtime_observed", "coverage_pct",
+                                "runtime_stale",
+                                "test_outcome", "test_duration"]},
+    "Method":   {"key": "qualified_name",
+                 "properties": ["qualified_name", "name", "file",
+                                "start_line", "end_line",
+                                "decorators", "source",
+                                "runtime_observed", "coverage_pct",
+                                "runtime_stale"]},
+    "Test":     {"note": ("An additional label on Function nodes "
+                          "(test functions covered by livegraph trace). "
+                          "Test nodes also satisfy :Function.")},
+    "Module":   {"key": "name",
+                 "properties": ["name", "kind"]},
+}
+
+_EDGE_TYPES_DESCRIPTION: dict[str, dict[str, Any]] = {
+    "CONTAINS":   {"from": "Project|File", "to": "File",
+                   "properties": []},
+    "DEFINES":    {"from": "File", "to": "Class|Function",
+                   "properties": []},
+    "HAS_METHOD": {"from": "Class", "to": "Method", "properties": []},
+    "IMPORTS":    {"from": "File", "to": "File|Module",
+                   "properties": ["raw", "line"]},
+    "CALLS":      {"from": "Function|Method", "to": "Function|Method",
+                   "properties": ["static", "runtime",
+                                  "observed_count", "call_site_lines"],
+                   "note": ("Provenance flags: c.static=true means AST "
+                            "predicted the call; c.runtime=true means it "
+                            "was observed executing. "
+                            "(static=false, runtime=true) is the "
+                            "dynamic-dispatch differentiator.")},
+    "COVERS":     {"from": "Test", "to": "Function|Method",
+                   "properties": ["lines_covered", "lines_total",
+                                  "coverage_pct"]},
+}
+
+_SAFETY_DESCRIPTION: dict[str, Any] = {
+    "read_only": True,
+    "forbidden_keywords": ["CREATE", "MERGE", "DELETE", "DETACH DELETE",
+                           "SET", "REMOVE", "DROP", "LOAD CSV",
+                           "USING PERIODIC COMMIT", "CALL"],
+    "row_limit_default": 1000,
+    "timeout_seconds_default": 30,
+    "project_auto_injected": True,
+    "convention": ("Every query should scope through "
+                   "(:Project {name: $project})-[:CONTAINS]->(:File)->... ; "
+                   "the $project parameter is injected automatically."),
+}
+
+_EXAMPLE_QUERIES: list[dict[str, Any]] = [
+    {
+        "intent": "Find a symbol by name",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE toLower(s.name) CONTAINS toLower($q) "
+            "RETURN s.qualified_name, s.name, labels(s), "
+            "       s.file, s.start_line "
+            "LIMIT 20"
+        ),
+        "params_hint": {"q": "<search term>"},
+    },
+    {
+        "intent": "Find who calls a symbol",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(callee) "
+            "WHERE callee.qualified_name = $qn "
+            "MATCH (caller)-[c:CALLS]->(callee) "
+            "RETURN caller.qualified_name, c.static, c.runtime, "
+            "       c.observed_count"
+        ),
+        "params_hint": {"qn": "<qualified_name>"},
+    },
+    {
+        "intent": ("Dynamic-dispatch calls — runtime caught what static "
+                   "missed"),
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(caller)"
+            "-[c:CALLS]->(callee) "
+            "WHERE c.runtime = true "
+            "  AND coalesce(c.static, false) = false "
+            "RETURN caller.qualified_name, callee.qualified_name, "
+            "       c.observed_count "
+            "LIMIT 50"
+        ),
+        "params_hint": {},
+    },
+    {
+        "intent": "Tests that cover a symbol",
+        "query": (
+            "MATCH (s {qualified_name: $qn}) "
+            "MATCH (t:Test)-[c:COVERS]->(s) "
+            "RETURN t.qualified_name, c.coverage_pct, "
+            "       c.lines_covered, c.lines_total "
+            "ORDER BY c.coverage_pct DESC"
+        ),
+        "params_hint": {"qn": "<qualified_name>"},
+    },
+    {
+        "intent": "Untested functions/methods",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE (s:Function OR s:Method) AND NOT s:Test "
+            "  AND coalesce(s.runtime_observed, false) = false "
+            "RETURN s.qualified_name, s.file "
+            "LIMIT 100"
+        ),
+        "params_hint": {},
+    },
+    {
+        "intent": "Files that import a given file",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(src:File)"
+            "-[r:IMPORTS]->(dst:File {path: $file}) "
+            "RETURN src.path, r.raw, r.line "
+            "ORDER BY src.path"
+        ),
+        "params_hint": {"file": "<relative path>"},
+    },
+]
+
+
+def describe_schema(backend: GraphBackend,
+                    project: str) -> dict[str, Any]:
+    """Return the static schema description for the configured project.
+
+    No backend reads — every field is statically derived from the
+    livegraph schema. The agent caches the response per session.
+    """
+    _ = backend  # signature consistency with the rest of the tools module
+    return {
+        "project": project,
+        "neo4j_version": _NEO4J_VERSION_HINT,
+        "node_labels": _NODE_LABELS_DESCRIPTION,
+        "edge_types": _EDGE_TYPES_DESCRIPTION,
+        "safety": _SAFETY_DESCRIPTION,
+        "example_queries": _EXAMPLE_QUERIES,
     }

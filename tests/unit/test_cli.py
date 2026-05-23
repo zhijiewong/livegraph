@@ -61,7 +61,7 @@ def test_mcp_command_invokes_run_stdio_with_project(monkeypatch):
 
     captured: dict = {}
 
-    def fake_run_stdio(b, project):
+    def fake_run_stdio(b, project, **kwargs):
         captured["backend"] = b
         captured["project"] = project
 
@@ -79,7 +79,7 @@ def test_mcp_command_project_flag_overrides_env(monkeypatch):
 
     captured: dict = {}
 
-    def fake_run_stdio(b, project):
+    def fake_run_stdio(b, project, **kwargs):
         captured["project"] = project
 
     monkeypatch.setattr("livegraph.cli.run_stdio", fake_run_stdio)

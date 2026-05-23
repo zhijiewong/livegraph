@@ -93,3 +93,31 @@ livegraph update --dry-run
 Known limitation: a function renamed in file A while file B still calls it
 by the old name leaves an orphaned `CALLS` edge until file B is also touched.
 Run a full `livegraph build` to fully recover.
+
+## Free-form queries (`describe_schema` + `run_cypher`)
+
+For questions the 11 structured tools don't cover, livegraph exposes two
+"open" MCP tools so the agent can compose Cypher itself:
+
+1. **`describe_schema()`** — returns the graph's labels, edges, properties,
+   safety rules, the configured project name, and six example queries.
+   Call it once per session.
+
+2. **`run_cypher(query, params?, row_limit?, timeout_seconds?)`** — runs a
+   read-only Cypher query. Belt-and-suspenders safety:
+   - Lexical pre-scan rejects writes (CREATE, MERGE, DELETE, SET, REMOVE,
+     DROP, LOAD CSV, USING PERIODIC COMMIT, CALL) with a friendly error.
+   - Neo4j READ transaction enforces read mode at the engine.
+   - Per-transaction timeout (default 30s).
+   - Server-side row truncation (default 1000 rows) with a `truncated`
+     flag on the response.
+   - `$project` parameter is auto-injected so queries can use the
+     configured project name symbolically.
+
+Example agent prompt: *"Show me functions in this project that are called
+by something runtime-only and have no tests."* The agent reads
+`describe_schema`, composes the Cypher, calls `run_cypher`, and returns the
+answer — all without livegraph needing an LLM dependency of its own.
+
+The agent's LLM (Claude Sonnet, Opus, GPT-5, whichever) writes the Cypher.
+livegraph just provides the safe execution endpoint.

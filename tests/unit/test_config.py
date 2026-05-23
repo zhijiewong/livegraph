@@ -30,3 +30,27 @@ def test_livegraph_project_from_env(monkeypatch):
     monkeypatch.setenv("LIVEGRAPH_PROJECT", "myproject")
     settings = Settings(_env_file=None)
     assert settings.livegraph_project == "myproject"
+
+
+def test_query_row_limit_default(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_QUERY_ROW_LIMIT", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_query_row_limit == 1000
+
+
+def test_query_row_limit_from_env(monkeypatch):
+    monkeypatch.setenv("LIVEGRAPH_QUERY_ROW_LIMIT", "250")
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_query_row_limit == 250
+
+
+def test_query_timeout_default(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_QUERY_TIMEOUT_SECONDS", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_query_timeout_seconds == 30
+
+
+def test_query_timeout_from_env(monkeypatch):
+    monkeypatch.setenv("LIVEGRAPH_QUERY_TIMEOUT_SECONDS", "5")
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_query_timeout_seconds == 5

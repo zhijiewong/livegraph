@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 11 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 13 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -28,8 +28,14 @@ def _require_state() -> tuple[GraphBackend, str]:
     return _BACKEND, _PROJECT
 
 
-def build_server() -> FastMCP:
-    """Construct a FastMCP server with all 11 tools registered."""
+def build_server(default_row_limit: int = 1000,
+                 default_timeout_seconds: int = 30) -> FastMCP:
+    """Construct a FastMCP server with all 13 tools registered.
+
+    Tool wrappers reference the module-level state set by ``bootstrap``.
+    ``default_row_limit`` and ``default_timeout_seconds`` are the values
+    used when ``run_cypher`` is called without explicit overrides.
+    """
     mcp = FastMCP("livegraph")
 
     @mcp.tool()
@@ -131,6 +137,44 @@ def build_server() -> FastMCP:
             max_depth=max_depth, provenance=provenance, limit=limit,
         )
 
+    @mcp.tool()
+    def describe_schema() -> dict[str, Any]:
+        """Return the static schema description for the configured project.
+
+        Includes node labels, edge types, safety rules, the auto-injected
+        $project parameter convention, and six example queries showing the
+        idioms (project scoping, label routing, provenance flags).
+
+        The agent should call this once per session and cache the response.
+        """
+        backend, project = _require_state()
+        return tools.describe_schema(backend, project)
+
+    @mcp.tool()
+    def run_cypher(
+        query: str, params: dict[str, Any] | None = None,
+        row_limit: int = default_row_limit,
+        timeout_seconds: int = default_timeout_seconds,
+    ) -> dict[str, Any]:
+        """Run a read-only Cypher query against the project's graph.
+
+        - ``query``: Cypher string. The forbidden-keyword scan (CREATE,
+          MERGE, DELETE, SET, REMOVE, DROP, LOAD CSV, USING PERIODIC
+          COMMIT, CALL) is applied to ``query`` before execution.
+          ``$project`` is auto-injected unless ``params`` overrides it.
+        - ``params``: parameter map for the query.
+        - ``row_limit``: server-side truncation. If exceeded the response
+          includes ``truncated: true``.
+        - ``timeout_seconds``: per-transaction timeout.
+
+        Returns ``{rows, truncated, row_count, summary}``.
+        """
+        backend, project = _require_state()
+        return tools.run_cypher(
+            backend, project, query=query, params=params,
+            row_limit=row_limit, timeout_seconds=timeout_seconds,
+        )
+
     return mcp
 
 
@@ -154,16 +198,31 @@ def _warn_if_project_missing(backend: GraphBackend, project: str) -> None:
         pass
 
 
-def bootstrap(backend: GraphBackend, project: str) -> FastMCP:
+def bootstrap(
+    backend: GraphBackend, project: str,
+    default_row_limit: int = 1000,
+    default_timeout_seconds: int = 30,
+) -> FastMCP:
     """Initialize global state and return a configured FastMCP server."""
     global _BACKEND, _PROJECT
     _BACKEND = backend
     _PROJECT = project
     _warn_if_project_missing(backend, project)
-    return build_server()
+    return build_server(
+        default_row_limit=default_row_limit,
+        default_timeout_seconds=default_timeout_seconds,
+    )
 
 
-def run_stdio(backend: GraphBackend, project: str) -> None:
+def run_stdio(
+    backend: GraphBackend, project: str,
+    default_row_limit: int = 1000,
+    default_timeout_seconds: int = 30,
+) -> None:
     """Launch the server and serve stdio until stdin closes."""
-    server = bootstrap(backend, project)
+    server = bootstrap(
+        backend, project,
+        default_row_limit=default_row_limit,
+        default_timeout_seconds=default_timeout_seconds,
+    )
     server.run()  # FastMCP defaults to stdio transport
