@@ -8,14 +8,13 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from livegraph.discovery import discover_python_files
 from livegraph.graph.backend import GraphBackend
 from livegraph.graph.writer import GraphWriter
 from livegraph.models import FileRecord
-from livegraph.static.extractor import RawCall, extract
+from livegraph.static.extractor import extract
 from livegraph.static.parser import has_errors, parse_source
 from livegraph.static.resolver import resolve_calls, resolve_imports
 
