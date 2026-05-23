@@ -135,3 +135,83 @@ def test_update_command_invokes_reingest_with_changeset(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert captured["project"] == "p"
     assert "a.py" in captured["changeset"].added
+
+
+def test_embed_command_errors_when_project_missing(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_PROJECT", raising=False)
+    result = runner.invoke(cli.app, ["embed"])
+    assert result.exit_code != 0
+    assert "LIVEGRAPH_PROJECT" in (result.output + (result.stderr or ""))
+
+
+def test_embed_command_handles_missing_extra(monkeypatch):
+    backend = FakeBackend()
+    monkeypatch.setattr(cli, "_make_backend", lambda: backend)
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "p")
+
+    from livegraph.semantic.provider import EmbeddingExtraMissing
+
+    def fake_make_provider(*args, **kwargs):
+        raise EmbeddingExtraMissing(
+            "sentence-transformers is not installed. Install the optional "
+            "extra: pip install 'livegraph[semantic]'"
+        )
+
+    monkeypatch.setattr("livegraph.cli._make_embedding_provider",
+                       fake_make_provider)
+    result = runner.invoke(cli.app, ["embed"])
+    assert result.exit_code == 1
+    assert "livegraph[semantic]" in (result.output + (result.stderr or ""))
+
+
+def test_embed_command_invokes_embed_project(monkeypatch, tmp_path):
+    backend = FakeBackend()
+    monkeypatch.setattr(cli, "_make_backend", lambda: backend)
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "sample")
+
+    class _FakeProvider:
+        name = "mock-model"
+        dimensions = 384
+        batch_size = 32
+
+    monkeypatch.setattr("livegraph.cli._make_embedding_provider",
+                       lambda settings: _FakeProvider())
+
+    captured: dict = {}
+    def fake_embed(backend_arg, project, provider, rebuild=False):
+        captured["project"] = project
+        captured["rebuild"] = rebuild
+        captured["provider_name"] = provider.name
+        from livegraph.semantic.embed import EmbedSummary
+        return EmbedSummary(embedded=3, unchanged=2, skipped=0)
+
+    monkeypatch.setattr("livegraph.cli.embed_project", fake_embed)
+    result = runner.invoke(cli.app, ["embed"])
+    assert result.exit_code == 0
+    assert captured["project"] == "sample"
+    assert captured["rebuild"] is False
+    assert captured["provider_name"] == "mock-model"
+    assert "3" in result.output and "2" in result.output
+
+
+def test_embed_command_rebuild_flag(monkeypatch):
+    backend = FakeBackend()
+    monkeypatch.setattr(cli, "_make_backend", lambda: backend)
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "p")
+
+    class _FakeProvider:
+        name = "m"; dimensions = 384; batch_size = 32
+
+    monkeypatch.setattr("livegraph.cli._make_embedding_provider",
+                       lambda settings: _FakeProvider())
+
+    captured: dict = {}
+    def fake_embed(*args, rebuild=False, **kwargs):
+        captured["rebuild"] = rebuild
+        from livegraph.semantic.embed import EmbedSummary
+        return EmbedSummary(0, 0, 0)
+
+    monkeypatch.setattr("livegraph.cli.embed_project", fake_embed)
+    result = runner.invoke(cli.app, ["embed", "--rebuild"])
+    assert result.exit_code == 0
+    assert captured["rebuild"] is True
