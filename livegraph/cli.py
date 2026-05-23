@@ -5,9 +5,11 @@ import logging
 
 import typer
 
+from livegraph.augment import augment_from_observations
 from livegraph.config import load_settings
 from livegraph.graph.backend import GraphBackend, Neo4jBackend
 from livegraph.ingest import ingest_project
+from livegraph.runtime.runner import RuntimeUnavailable, run_pytest
 
 app = typer.Typer(help="A runtime-augmented code knowledge graph for Python.")
 
@@ -68,6 +70,61 @@ def clean(
     finally:
         backend.close()
     typer.echo("Graph cleared.")
+
+
+@app.command()
+def trace(
+    path: str = typer.Argument(..., help="Project root to trace"),
+    python: str = typer.Option(None, "--python", help="Target interpreter"),
+) -> None:
+    """Phase 2: trace the project's pytest suite and augment the graph."""
+    settings = load_settings()
+    backend = _make_backend()
+    try:
+        observations = run_pytest(path, python=python)
+        summary = augment_from_observations(
+            observations, backend, batch_size=settings.livegraph_batch_size)
+    except RuntimeUnavailable as exc:
+        typer.echo(f"Phase 2 skipped: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    finally:
+        backend.close()
+    typer.echo(
+        f"Phase 2 complete: {summary.runtime_call_edges} runtime call "
+        f"edges, {summary.tests} tests, {summary.coverage_edges} coverage "
+        f"edges."
+    )
+
+
+@app.command()
+def build(
+    path: str = typer.Argument(..., help="Project root to build"),
+    python: str = typer.Option(None, "--python", help="Target interpreter"),
+) -> None:
+    """Run Phase 1 then Phase 2 for the project at PATH."""
+    settings = load_settings()
+    backend = _make_backend()
+    try:
+        ingest_summary = ingest_project(
+            path, backend, batch_size=settings.livegraph_batch_size)
+        typer.echo(
+            f"Phase 1 complete: {ingest_summary.files} files, "
+            f"{ingest_summary.definitions} definitions."
+        )
+        try:
+            observations = run_pytest(path, python=python)
+            augment_summary = augment_from_observations(
+                observations, backend,
+                batch_size=settings.livegraph_batch_size)
+            typer.echo(
+                f"Phase 2 complete: "
+                f"{augment_summary.runtime_call_edges} runtime call edges, "
+                f"{augment_summary.tests} tests."
+            )
+        except RuntimeUnavailable as exc:
+            typer.echo(f"Phase 2 skipped: {exc}", err=True)
+    finally:
+        backend.close()
 
 
 if __name__ == "__main__":  # pragma: no cover
