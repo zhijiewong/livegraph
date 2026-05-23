@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 13 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 14 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -13,10 +13,37 @@ from mcp.server.fastmcp import FastMCP
 
 from livegraph.graph.backend import GraphBackend
 from livegraph.mcp import tools
+from livegraph.semantic.provider import (
+    EmbeddingExtraMissing, EmbeddingProvider,
+)
 
 # Set by ``bootstrap()`` before any tool is invoked.
 _BACKEND: GraphBackend | None = None
 _PROJECT: str | None = None
+_PROVIDER: EmbeddingProvider | None = None
+
+
+def _get_or_load_provider() -> EmbeddingProvider | None:
+    """Return the lazily-loaded LocalSTProvider, or None if extra is missing.
+
+    First call loads the model (slow, ~3s for MiniLM). Subsequent calls
+    reuse the loaded provider.
+    """
+    global _PROVIDER
+    if _PROVIDER is not None:
+        return _PROVIDER
+    try:
+        from livegraph.config import load_settings
+        from livegraph.semantic.provider import LocalSTProvider
+
+        settings = load_settings()
+        _PROVIDER = LocalSTProvider(
+            model_name=settings.livegraph_embed_model,
+            batch_size=settings.livegraph_embed_batch_size,
+        )
+    except EmbeddingExtraMissing:
+        return None
+    return _PROVIDER
 
 
 def _require_state() -> tuple[GraphBackend, str]:
@@ -173,6 +200,37 @@ def build_server(default_row_limit: int = 1000,
         return tools.run_cypher(
             backend, project, query=query, params=params,
             row_limit=row_limit, timeout_seconds=timeout_seconds,
+        )
+
+    @mcp.tool()
+    def semantic_search(
+        query: str, limit: int = 10, kind: str = "any",
+    ) -> dict[str, Any]:
+        """Find code symbols by vector similarity to a natural-language query.
+
+        - ``query``: natural-language description of the code you want to find.
+        - ``limit``: top-K results (default 10).
+        - ``kind``: ``"any"`` (default), ``"function"``, or ``"method"``.
+
+        Returns ``{results, model, embedded_count, warning}``. If the
+        ``[semantic]`` extra is not installed, returns an empty result list
+        and a warning with the install hint.
+        """
+        backend, project = _require_state()
+        provider = _get_or_load_provider()
+        if provider is None:
+            return {
+                "results": [],
+                "model": "unknown",
+                "embedded_count": 0,
+                "warning": (
+                    "semantic search not enabled — install with "
+                    "`pip install livegraph[semantic]`"
+                ),
+            }
+        return tools.semantic_search(
+            backend, project, provider, query=query,
+            limit=limit, kind=kind,
         )
 
     return mcp
