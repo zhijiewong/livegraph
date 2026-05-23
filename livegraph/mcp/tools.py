@@ -10,6 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 from livegraph.graph.backend import GraphBackend
+from livegraph.mcp.cypher_guard import (
+    CypherSyntaxError, CypherTimeoutError,
+    EngineWriteAttemptedError, ForbiddenKeywordError,
+    auto_limit, forbidden_keyword, inject_project,
+)
 from livegraph.mcp.diff_parser import parse_diff
 
 # Labels we treat as a primary "kind" for SymbolRef.
@@ -651,6 +656,81 @@ def _test_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "test_outcome": row.get("test_outcome") or "",
         "covers_symbols": sorted(row.get("covers_symbols") or []),
         "avg_coverage_pct": float(row.get("avg_coverage_pct") or 0.0),
+    }
+
+
+# -- run_cypher -------------------------------------------------------
+
+# Class-name fragments used to categorize neo4j driver exceptions
+# without importing the driver at module load time.
+_SYNTAX_ERROR_NAMES = {"CypherSyntaxError", "InvalidInput"}
+_WRITE_ERROR_CODES = (
+    "Neo.ClientError.Statement.AccessMode",
+    "Neo.ClientError.Statement.SemanticError",
+)
+_TIMEOUT_NAME_FRAGMENTS = ("Timeout", "TimedOut")
+
+
+def _categorize_backend_error(exc: Exception, query: str,
+                              timeout_seconds: int) -> Exception:
+    """Map a backend exception to a typed cypher_guard error.
+
+    Already-typed cypher_guard errors are passed through unchanged.
+    """
+    # Pass-through for our own typed errors.
+    if isinstance(exc, (ForbiddenKeywordError, CypherSyntaxError,
+                        CypherTimeoutError, EngineWriteAttemptedError)):
+        return exc
+
+    name = type(exc).__name__
+    message = str(exc)
+    code = getattr(exc, "code", "") or ""
+
+    if any(t in name for t in _TIMEOUT_NAME_FRAGMENTS) \
+            or "timed out" in message.lower():
+        return CypherTimeoutError(timeout_seconds, query)
+    if name in _SYNTAX_ERROR_NAMES or "SyntaxError" in name:
+        return CypherSyntaxError(message, query)
+    if code in _WRITE_ERROR_CODES or "writes" in message.lower():
+        return EngineWriteAttemptedError(query)
+    return exc
+
+
+def run_cypher(
+    backend: GraphBackend, project: str, query: str,
+    params: dict[str, Any] | None = None,
+    row_limit: int = 1000, timeout_seconds: int = 30,
+) -> dict[str, Any]:
+    """Run a read-only Cypher query for an agent.
+
+    Pipeline: lexical pre-scan -> $project injection -> auto-LIMIT ->
+    READ transaction -> truncate -> return ``{rows, truncated, row_count,
+    summary}``. Each failure surfaces as a typed ``CypherError`` subclass.
+    """
+    kw = forbidden_keyword(query)
+    if kw is not None:
+        raise ForbiddenKeywordError(kw, query)
+
+    final_params = inject_project(params, project)
+    final_query = auto_limit(query, row_limit)
+
+    try:
+        records, summary = backend.execute_read(
+            final_query, timeout_seconds=timeout_seconds, **final_params,
+        )
+    except Exception as exc:
+        raise _categorize_backend_error(exc, final_query, timeout_seconds) \
+            from exc
+
+    truncated = len(records) > row_limit
+    if truncated:
+        records = records[:row_limit]
+
+    return {
+        "rows": records,
+        "truncated": truncated,
+        "row_count": len(records),
+        "summary": summary,
     }
 
 
