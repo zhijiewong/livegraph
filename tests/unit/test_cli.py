@@ -87,3 +87,51 @@ def test_mcp_command_project_flag_overrides_env(monkeypatch):
     result = runner.invoke(cli.app, ["mcp", "--project", "fromflag"])
     assert result.exit_code == 0
     assert captured["project"] == "fromflag"
+
+
+def test_update_command_errors_when_project_missing(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_PROJECT", raising=False)
+    result = runner.invoke(cli.app, ["update"])
+    assert result.exit_code != 0
+    assert "LIVEGRAPH_PROJECT" in (result.output + (result.stderr or ""))
+
+
+def test_update_command_dry_run_does_not_call_reingest(monkeypatch, tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    backend = FakeBackend(rows=[])
+    monkeypatch.setattr(cli, "_make_backend", lambda: backend)
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "p")
+
+    called: dict = {"reingest": False}
+
+    def fake_reingest(*args, **kwargs):
+        called["reingest"] = True
+
+    monkeypatch.setattr("livegraph.cli.reingest_files", fake_reingest)
+    result = runner.invoke(cli.app, ["update", str(tmp_path), "--dry-run"])
+    assert result.exit_code == 0
+    assert called["reingest"] is False
+    assert "added" in result.stdout.lower() or "changed" in result.stdout.lower()
+
+
+def test_update_command_invokes_reingest_with_changeset(monkeypatch, tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    backend = FakeBackend(rows=[])
+    monkeypatch.setattr(cli, "_make_backend", lambda: backend)
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "p")
+
+    captured: dict = {}
+
+    def fake_reingest(root, backend_arg, project, changeset, batch_size=1000):
+        captured["root"] = root
+        captured["project"] = project
+        captured["changeset"] = changeset
+        from livegraph.incremental import UpdateSummary
+        return UpdateSummary(added=1, changed=0, deleted=0, unchanged=0,
+                             parse_errors=0)
+
+    monkeypatch.setattr("livegraph.cli.reingest_files", fake_reingest)
+    result = runner.invoke(cli.app, ["update", str(tmp_path)])
+    assert result.exit_code == 0
+    assert captured["project"] == "p"
+    assert "a.py" in captured["changeset"].added
