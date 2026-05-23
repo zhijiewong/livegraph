@@ -17,9 +17,7 @@ from livegraph.mcp.cypher_guard import (
 )
 from livegraph.mcp.diff_parser import parse_diff
 from livegraph.semantic.embed import INDEX_NAME
-from livegraph.semantic.provider import (
-    EmbeddingExtraMissing, EmbeddingProvider,
-)
+from livegraph.semantic.provider import EmbeddingProvider
 
 # Labels we treat as a primary "kind" for SymbolRef.
 _KIND_LABELS = ("Function", "Method", "Class")
