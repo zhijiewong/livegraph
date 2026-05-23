@@ -63,7 +63,11 @@ class Neo4jBackend:
         self, cypher: str, timeout_seconds: int = 30,
         **params: Any,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        from datetime import timedelta
+        # Neo4j 6.x driver reads the timeout (float seconds) from
+        # _work.timeout attribute; 0 is treated as "no timeout" by the
+        # driver, so we use a very small positive value instead.
+        timeout_s: float = float(timeout_seconds) if timeout_seconds > 0 \
+            else 0.001
 
         def _work(tx: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             result = tx.run(cypher, **params)
@@ -76,12 +80,12 @@ class Neo4jBackend:
             }
             return records, summary
 
+        _work.timeout = timeout_s  # type: ignore[attr-defined]
+
         with self._driver.session(
             database=self._database, default_access_mode="READ",
         ) as session:
-            return session.execute_read(
-                _work, timeout=timedelta(seconds=timeout_seconds),
-            )
+            return session.execute_read(_work)
 
     def close(self) -> None:
         self._driver.close()

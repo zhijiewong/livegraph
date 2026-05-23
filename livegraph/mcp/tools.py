@@ -669,6 +669,7 @@ _WRITE_ERROR_CODES = (
     "Neo.ClientError.Statement.SemanticError",
 )
 _TIMEOUT_NAME_FRAGMENTS = ("Timeout", "TimedOut")
+_TIMEOUT_CODE_FRAGMENTS = ("TransactionTimedOut", "Timeout")
 
 
 def _categorize_backend_error(exc: Exception, query: str,
@@ -686,8 +687,10 @@ def _categorize_backend_error(exc: Exception, query: str,
     message = str(exc)
     code = getattr(exc, "code", "") or ""
 
-    if any(t in name for t in _TIMEOUT_NAME_FRAGMENTS) \
-            or "timed out" in message.lower():
+    if (any(t in name for t in _TIMEOUT_NAME_FRAGMENTS)
+            or any(t in code for t in _TIMEOUT_CODE_FRAGMENTS)
+            or "timed out" in message.lower()
+            or "transaction has been terminated" in message.lower()):
         return CypherTimeoutError(timeout_seconds, query)
     if name in _SYNTAX_ERROR_NAMES or "SyntaxError" in name:
         return CypherSyntaxError(message, query)
