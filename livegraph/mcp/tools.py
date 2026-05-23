@@ -38,3 +38,69 @@ def _symbol_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "start_line": row["start_line"],
         "end_line": row["end_line"],
     }
+
+
+# -- find_symbol -------------------------------------------------------
+
+_FIND_SYMBOL_CYPHER = (
+    "MATCH (p:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+    "WHERE (s:Function OR s:Method OR s:Class) AND ("
+    "  ($exact AND s.name = $query) "
+    "  OR (NOT $exact AND toLower(s.name) CONTAINS toLower($query)) "
+    ") "
+    "RETURN s.qualified_name AS qualified_name, s.name AS name, "
+    "       head([l IN labels(s) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       s.file AS file, s.start_line AS start_line, "
+    "       s.end_line AS end_line "
+    "ORDER BY s.qualified_name "
+    "LIMIT $limit"
+)
+
+
+def find_symbol(backend: GraphBackend, project: str, query: str,
+                exact: bool = False, limit: int = 50) -> list[dict[str, Any]]:
+    """Find symbols by name. Substring (case-insensitive) unless ``exact``."""
+    rows = backend.execute(
+        _FIND_SYMBOL_CYPHER,
+        project=project, query=query, exact=exact, limit=limit,
+    )
+    return [_symbol_from_row(r) for r in rows]
+
+
+# -- get_source --------------------------------------------------------
+
+_GET_SOURCE_CYPHER = (
+    "MATCH (p:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+    "WHERE s.qualified_name = $qualified_name "
+    "RETURN s.qualified_name AS qualified_name, s.name AS name, "
+    "       head([l IN labels(s) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       s.file AS file, s.start_line AS start_line, "
+    "       s.end_line AS end_line, "
+    "       coalesce(s.decorators, []) AS decorators, "
+    "       coalesce(s.source, '') AS source, "
+    "       coalesce(s.runtime_observed, false) AS runtime_observed, "
+    "       coalesce(s.coverage_pct, 0.0) AS coverage_pct "
+    "LIMIT 1"
+)
+
+
+def get_source(backend: GraphBackend, project: str,
+               qualified_name: str) -> dict[str, Any] | None:
+    """Return the full source + metadata for a symbol, or None."""
+    rows = backend.execute(
+        _GET_SOURCE_CYPHER, project=project, qualified_name=qualified_name,
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        **_symbol_from_row(row),
+        "decorators": list(row.get("decorators") or []),
+        "source": row.get("source") or "",
+        "runtime_observed": bool(row.get("runtime_observed")),
+        "coverage_pct": float(row.get("coverage_pct") or 0.0),
+    }
