@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     livegraph_project: str | None = None
     livegraph_query_row_limit: int = 1000
     livegraph_query_timeout_seconds: int = 30
+    livegraph_embed_model: str = "all-MiniLM-L6-v2"
+    livegraph_embed_batch_size: int = 32
 
 
 def load_settings() -> Settings:
