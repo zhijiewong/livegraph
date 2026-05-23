@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "typer>=0.15",
+    "mcp>=1.10",
 ]
 
 [project.scripts]
@@ -29,6 +30,7 @@ include = ["livegraph*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+python_functions = ["test_*"]
 markers = ["integration: requires a running Neo4j (deselect with -m 'not integration')"]
 
 [tool.mypy]

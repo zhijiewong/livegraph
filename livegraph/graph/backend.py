@@ -16,7 +16,7 @@ class GraphBackend(Protocol):
     def verify(self) -> None:
         """Raise if the database is unreachable."""
 
-    def execute(self, query: str, **params: Any) -> list[dict[str, Any]]:
+    def execute(self, cypher: str, **params: Any) -> list[dict[str, Any]]:
         """Run a Cypher query and return rows as plain dicts."""
 
     def close(self) -> None:
@@ -41,9 +41,9 @@ class Neo4jBackend:
         except (ServiceUnavailable, Neo4jError) as exc:  # pragma: no cover
             raise ConnectionError(f"Neo4j unreachable: {exc}") from exc
 
-    def execute(self, query: str, **params: Any) -> list[dict[str, Any]]:
+    def execute(self, cypher: str, **params: Any) -> list[dict[str, Any]]:
         records, _summary, _keys = self._driver.execute_query(
-            query, database_=self._database, **params,
+            cypher, database_=self._database, **params,
         )
         return [record.data() for record in records]
 
@@ -64,8 +64,8 @@ class FakeBackend:
     def verify(self) -> None:
         return None
 
-    def execute(self, query: str, **params: Any) -> list[dict[str, Any]]:
-        self.calls.append((query, params))
+    def execute(self, cypher: str, **params: Any) -> list[dict[str, Any]]:
+        self.calls.append((cypher, params))
         return list(self._rows)
 
     def close(self) -> None:

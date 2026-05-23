@@ -18,3 +18,15 @@ def test_env_overrides(monkeypatch):
     settings = Settings(_env_file=None)
     assert settings.neo4j_uri == "bolt://example:9999"
     assert settings.livegraph_batch_size == 50
+
+
+def test_livegraph_project_defaults_to_none(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_PROJECT", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_project is None
+
+
+def test_livegraph_project_from_env(monkeypatch):
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "myproject")
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_project == "myproject"
