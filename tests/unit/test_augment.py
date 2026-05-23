@@ -29,3 +29,40 @@ def test_augment_writes_calls_tests_and_coverage():
     assert summary.coverage_edges == 1
     issued = " ".join(q for q, _ in backend.calls)
     assert ":CALLS" in issued and ":Test" in issued and ":COVERS" in issued
+
+
+def test_augment_clears_runtime_stale_for_observed_symbols():
+    from livegraph.augment import augment_from_observations
+    from livegraph.graph.backend import FakeBackend
+
+    definitions_rows = [
+        {"qualified_name": "calc.py::add", "file": "calc.py",
+         "start_line": 1, "end_line": 2, "labels": ["Function"]},
+    ]
+    backend = FakeBackend(rows=definitions_rows)
+    observations = {
+        "root": "/tmp/proj",
+        "runtime_calls": [
+            {"caller_qn": "calc.py::total", "callee_qn": "calc.py::add",
+             "test_qn": "calc.py::test_total", "observed_count": 1},
+        ],
+        "tests": [
+            {"qualified_name": "calc.py::test_total", "outcome": "passed",
+             "duration": 0.01},
+        ],
+        "coverage": [
+            {"test_context": "calc.py::test_total", "file": "calc.py",
+             "lines": [1, 2]},
+        ],
+    }
+    augment_from_observations(observations, backend, batch_size=100)
+
+    clear_calls = [
+        c for c in backend.calls
+        if "SET s.runtime_stale = false" in c[0]
+    ]
+    assert clear_calls, "expected a clear_runtime_stale_for_symbols call"
+    _q, params = clear_calls[0]
+    assert "calc.py::add" in params["qns"]
+    assert "calc.py::total" in params["qns"]
+    assert "calc.py::test_total" in params["qns"]
