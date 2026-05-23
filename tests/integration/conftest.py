@@ -32,3 +32,20 @@ def neo4j_backend():
 def sample_project_path() -> str:
     """Absolute path to the fixture sample project."""
     return os.path.abspath(SAMPLE_PROJECT)
+
+
+@pytest.fixture()
+def ingested_sample(neo4j_backend, sample_project_path):
+    """Run Phase 1 + Phase 2 on the sample project; yield ``(backend, project_name)``."""
+    import sys
+
+    from livegraph.augment import augment_from_observations
+    from livegraph.ingest import ingest_project
+    from livegraph.runtime.runner import run_pytest
+
+    project_name = "sample"
+    ingest_project(sample_project_path, neo4j_backend,
+                   project_name=project_name, batch_size=100)
+    observations = run_pytest(sample_project_path, python=sys.executable)
+    augment_from_observations(observations, neo4j_backend, batch_size=100)
+    yield neo4j_backend, project_name
