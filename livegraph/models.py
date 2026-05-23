@@ -52,3 +52,38 @@ class CallEdge:
     runtime: bool = False
     observed_count: int = 0
     call_site_lines: tuple[int, ...] = field(default=())
+
+
+@dataclass(frozen=True, slots=True)
+class RuntimeCall:
+    """A caller->callee call observed during a traced test run."""
+
+    caller_qn: str
+    callee_qn: str
+    test_qn: str
+    call_site_line: int
+
+
+@dataclass(frozen=True, slots=True)
+class TestResult:
+    """The outcome of a single executed test."""
+
+    qualified_name: str
+    outcome: str         # "passed" | "failed" | "skipped"
+    duration: float
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageRecord:
+    """Per-test coverage of one definition."""
+
+    test_qn: str
+    symbol_qn: str
+    lines_covered: int
+    lines_total: int
+
+    @property
+    def coverage_pct(self) -> float:
+        if self.lines_total == 0:
+            return 0.0
+        return round(100.0 * self.lines_covered / self.lines_total, 2)
