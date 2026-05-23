@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from livegraph.graph.backend import GraphBackend
+from livegraph.mcp.diff_parser import parse_diff
 
 # Labels we treat as a primary "kind" for SymbolRef.
 _KIND_LABELS = ("Function", "Method", "Class")
@@ -454,4 +455,200 @@ def graph_status(backend: GraphBackend,
         "project": row.get("project") or project,
         **{k: int(row.get(k) or 0) for k in _GRAPH_STATUS_KEYS
            if k != "project"},
+    }
+
+
+# -- change_impact ----------------------------------------------------
+
+_MAX_DEPTH_MIN = 1
+_MAX_DEPTH_MAX = 20
+
+# Query A — changed symbols
+_CHANGE_IMPACT_QUERY_A = (
+    "UNWIND $files AS spec "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(file:File "
+    "    {path: spec.path}) "
+    "MATCH (file)-[:DEFINES|HAS_METHOD*1..2]->(s) "
+    "WHERE (s:Function OR s:Method) "
+    "  AND any(line IN spec.lines WHERE "
+    "          line >= s.start_line AND line <= s.end_line) "
+    "RETURN DISTINCT s.qualified_name AS qualified_name, s.name AS name, "
+    "       head([l IN labels(s) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       s.file AS file, s.start_line AS start_line, "
+    "       s.end_line AS end_line, "
+    "       coalesce(s.runtime_observed, false) AS runtime_observed, "
+    "       coalesce(s.coverage_pct, 0.0) AS coverage_pct"
+)
+
+# Query C — tests for any (changed ∪ impacted) symbol
+_CHANGE_IMPACT_QUERY_C = (
+    "UNWIND $all_affected_qns AS qn "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+    "WHERE s.qualified_name = qn "
+    "MATCH (t:Test)-[c:COVERS]->(s) "
+    "RETURN DISTINCT t.qualified_name AS qualified_name, t.name AS name, "
+    "       head([l IN labels(t) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       t.file AS file, t.start_line AS start_line, "
+    "       t.end_line AS end_line, "
+    "       coalesce(t.test_outcome, '') AS test_outcome, "
+    "       collect(DISTINCT qn) AS covers_symbols, "
+    "       avg(coalesce(c.coverage_pct, 0.0)) AS avg_coverage_pct "
+    "ORDER BY t.qualified_name"
+)
+
+
+def _query_b_cypher(max_depth: int) -> str:
+    """Build the impacted-callers query with a safely-interpolated depth."""
+    return (
+        "UNWIND $changed_qns AS changed_qn "
+        "MATCH (changed {qualified_name: changed_qn}) "
+        "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+        "-[:DEFINES|HAS_METHOD*1..2]->(impacted) "
+        f"MATCH path = (impacted)-[:CALLS*1..{max_depth}]->(changed) "
+        "WHERE all(rel IN relationships(path) WHERE "
+        "          ($provenance = 'any') "
+        "       OR ($provenance = 'static'  AND rel.static  = true) "
+        "       OR ($provenance = 'runtime' AND rel.runtime = true)) "
+        "WITH impacted, changed_qn, length(path) AS depth, "
+        "     [r IN relationships(path) | "
+        "       {static: coalesce(r.static, false), "
+        "        runtime: coalesce(r.runtime, false)}] AS edge_provenance "
+        "RETURN impacted.qualified_name AS qualified_name, "
+        "       impacted.name AS name, "
+        "       head([l IN labels(impacted) "
+        "             WHERE l IN ['Function','Method','Class'] "
+        "             | toLower(l)]) AS kind, "
+        "       impacted.file AS file, "
+        "       impacted.start_line AS start_line, "
+        "       impacted.end_line AS end_line, "
+        "       coalesce(impacted.runtime_observed, false) "
+        "         AS runtime_observed, "
+        "       coalesce(impacted.coverage_pct, 0.0) AS coverage_pct, "
+        "       collect(DISTINCT {via: changed_qn, depth: depth, "
+        "                         edges: edge_provenance}) AS reached_via "
+        "ORDER BY qualified_name "
+        "LIMIT $limit"
+    )
+
+
+def change_impact(
+    backend: GraphBackend, project: str, diff: str,
+    max_depth: int = 5, provenance: str = "any", limit: int = 200,
+) -> dict[str, Any]:
+    """Given a unified diff, return changed/impacted symbols and tests to run."""
+    max_depth = max(_MAX_DEPTH_MIN, min(_MAX_DEPTH_MAX, int(max_depth)))
+    if provenance not in ("any", "static", "runtime"):
+        provenance = "any"
+
+    parsed = parse_diff(diff)
+    if not parsed:
+        return _empty_result(changed_files=0)
+
+    files_spec = [
+        {"path": path, "lines": sorted(lines)}
+        for path, lines in sorted(parsed.items())
+    ]
+
+    changed_rows = backend.execute(
+        _CHANGE_IMPACT_QUERY_A, project=project, files=files_spec,
+    )
+    changed = [_change_symbol_from_row(r) for r in changed_rows]
+    changed_qns = [c["qualified_name"] for c in changed]
+    files_in_changed = {c["file"] for c in changed}
+    unmatched_files = sorted(set(parsed.keys()) - files_in_changed)
+
+    impacted_rows: list[dict[str, Any]] = []
+    if changed_qns:
+        impacted_rows = backend.execute(
+            _query_b_cypher(max_depth),
+            project=project, changed_qns=changed_qns,
+            provenance=provenance, limit=limit,
+        )
+    impacted = [_impacted_from_row(r) for r in impacted_rows]
+
+    all_affected_qns = sorted({
+        *changed_qns,
+        *(i["qualified_name"] for i in impacted),
+    })
+    test_rows: list[dict[str, Any]] = []
+    if all_affected_qns:
+        test_rows = backend.execute(
+            _CHANGE_IMPACT_QUERY_C, project=project,
+            all_affected_qns=all_affected_qns,
+        )
+    tests_to_run = [_test_from_row(r) for r in test_rows]
+
+    max_depth_reached = max(
+        (via["depth"] for sym in impacted for via in sym["reached_via"]),
+        default=0,
+    )
+
+    return {
+        "changed": changed,
+        "impacted": impacted,
+        "tests_to_run": tests_to_run,
+        "unmatched_files": unmatched_files,
+        "stats": {
+            "changed_files": len(parsed),
+            "changed_symbols": len(changed),
+            "impacted_symbols": len(impacted),
+            "tests_to_run": len(tests_to_run),
+            "max_depth_reached": max_depth_reached,
+        },
+    }
+
+
+def _empty_result(changed_files: int) -> dict[str, Any]:
+    return {
+        "changed": [],
+        "impacted": [],
+        "tests_to_run": [],
+        "unmatched_files": [],
+        "stats": {
+            "changed_files": changed_files,
+            "changed_symbols": 0,
+            "impacted_symbols": 0,
+            "tests_to_run": 0,
+            "max_depth_reached": 0,
+        },
+    }
+
+
+def _change_symbol_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_symbol_from_row(row),
+        "runtime_observed": bool(row.get("runtime_observed")),
+        "coverage_pct": float(row.get("coverage_pct") or 0.0),
+    }
+
+
+def _impacted_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_symbol_from_row(row),
+        "runtime_observed": bool(row.get("runtime_observed")),
+        "coverage_pct": float(row.get("coverage_pct") or 0.0),
+        "reached_via": [
+            {
+                "via": entry["via"],
+                "depth": int(entry["depth"]),
+                "edges": [
+                    {"static": bool(e.get("static")),
+                     "runtime": bool(e.get("runtime"))}
+                    for e in entry.get("edges") or []
+                ],
+            }
+            for entry in row.get("reached_via") or []
+        ],
+    }
+
+
+def _test_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_symbol_from_row(row),
+        "test_outcome": row.get("test_outcome") or "",
+        "covers_symbols": sorted(row.get("covers_symbols") or []),
+        "avg_coverage_pct": float(row.get("avg_coverage_pct") or 0.0),
     }

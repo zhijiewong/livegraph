@@ -59,6 +59,7 @@ purely static code-graph tool can run:
 | `untested_symbols(file?, kind?)` | Functions/methods no test exercised |
 | `imports(file, direction)` | File-level import edges |
 | `graph_status()` | Aggregate counts; call this first |
+| **`change_impact(diff, max_depth, provenance, limit)`** | Given a git diff: changed symbols, transitive callers with per-edge provenance, and the tests to run |
 
 **Acceptance test:** with the server registered, ask your agent
 "show me the dynamic-dispatch calls in this project". A working

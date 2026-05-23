@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 10 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 11 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -29,7 +29,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 
 def build_server() -> FastMCP:
-    """Construct a FastMCP server with all 10 tools registered."""
+    """Construct a FastMCP server with all 11 tools registered."""
     mcp = FastMCP("livegraph")
 
     @mcp.tool()
@@ -110,6 +110,26 @@ def build_server() -> FastMCP:
         """Counts: files, symbols, tests, calls split by provenance."""
         backend, project = _require_state()
         return tools.graph_status(backend, project)
+
+    @mcp.tool()
+    def change_impact(
+        diff: str, max_depth: int = 5, provenance: str = "any",
+        limit: int = 200,
+    ) -> dict[str, Any]:
+        """Given a unified diff, return changed/impacted symbols and tests to run.
+
+        - ``diff``: unified-diff text (e.g. ``git diff HEAD~1 HEAD``).
+        - ``max_depth``: how far to traverse CALLS upstream (clamped 1..20).
+        - ``provenance``: edge filter — ``any``, ``static``, or ``runtime``.
+        - ``limit``: max number of impacted symbols returned.
+
+        Returns ``{changed, impacted, tests_to_run, unmatched_files, stats}``.
+        """
+        backend, project = _require_state()
+        return tools.change_impact(
+            backend, project, diff=diff,
+            max_depth=max_depth, provenance=provenance, limit=limit,
+        )
 
     return mcp
 
