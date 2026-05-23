@@ -80,7 +80,9 @@ def test_run_cypher_auto_appends_limit_when_missing():
     run_cypher(backend, project="sample",
                query="MATCH (n) RETURN n", row_limit=42)
     sent_cypher, _params, _t = backend.calls[0]
-    assert sent_cypher.endswith("LIMIT 42")
+    # We auto-append LIMIT row_limit + 1 so we can detect truncation by
+    # comparing len(records) > row_limit after the fetch.
+    assert sent_cypher.endswith("LIMIT 43")
 
 
 def test_run_cypher_preserves_caller_limit():

@@ -155,7 +155,11 @@ def mcp(
         backend.close()
         raise typer.Exit(code=1) from exc
     try:
-        run_stdio(backend, resolved)
+        run_stdio(
+            backend, resolved,
+            default_row_limit=settings.livegraph_query_row_limit,
+            default_timeout_seconds=settings.livegraph_query_timeout_seconds,
+        )
     finally:
         backend.close()
 

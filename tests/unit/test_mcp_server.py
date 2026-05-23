@@ -35,3 +35,20 @@ def _registered_tool_names(server) -> list[str]:
         return list(tools_dict.keys())
     # Fallback: try list_tools() sync.
     return [t.name for t in manager.list_tools()]
+
+
+def test_build_server_uses_supplied_defaults_for_run_cypher():
+    """build_server's default_* args should be the run_cypher tool's defaults."""
+    backend = FakeBackend()
+    server = bootstrap(backend, project="sample",
+                       default_row_limit=42, default_timeout_seconds=7)
+    manager = getattr(server, "_tool_manager", None) \
+        or getattr(server, "tool_manager", None)
+    tool = manager._tools["run_cypher"]
+    # FastMCP exposes the registered function via the tool object's `fn`.
+    fn = getattr(tool, "fn", None) or getattr(tool, "_fn", None)
+    assert fn is not None, "FastMCP tool object exposes no fn attribute"
+    import inspect
+    sig = inspect.signature(fn)
+    assert sig.parameters["row_limit"].default == 42
+    assert sig.parameters["timeout_seconds"].default == 7

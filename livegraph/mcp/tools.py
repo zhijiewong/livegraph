@@ -715,7 +715,8 @@ def run_cypher(
         raise ForbiddenKeywordError(kw, query)
 
     final_params = inject_project(params, project)
-    final_query = auto_limit(query, row_limit)
+    # Fetch row_limit + 1 so we can tell whether more rows existed.
+    final_query = auto_limit(query, row_limit + 1)
 
     try:
         records, summary = backend.execute_read(
@@ -739,7 +740,7 @@ def run_cypher(
 
 # -- describe_schema --------------------------------------------------
 
-_NEO4J_VERSION_HINT = "5.x"
+_NEO4J_VERSION_HINT = "5.26+"
 
 _NODE_LABELS_DESCRIPTION: dict[str, dict[str, Any]] = {
     "Project":  {"key": "name",

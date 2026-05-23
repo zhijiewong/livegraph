@@ -63,11 +63,12 @@ class Neo4jBackend:
         self, cypher: str, timeout_seconds: int = 30,
         **params: Any,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        # Neo4j 6.x driver reads the timeout (float seconds) from
-        # _work.timeout attribute; 0 is treated as "no timeout" by the
-        # driver, so we use a very small positive value instead.
-        timeout_s: float = float(timeout_seconds) if timeout_seconds > 0 \
-            else 0.001
+        # Neo4j's session.execute_read treats timeout=0 as "no timeout" in some
+        # driver versions and as "immediate" in others. We require an explicit
+        # positive value; callers that want unlimited execution should pass
+        # a generous value (e.g., 600) rather than 0.
+        effective_timeout = max(1, int(timeout_seconds))
+        timeout_s: float = float(effective_timeout)
 
         def _work(tx: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
             result = tx.run(cypher, **params)
