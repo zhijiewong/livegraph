@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     neo4j_password: str = "livegraph-local"
     livegraph_batch_size: int = 1000
     livegraph_log_level: str = "INFO"
+    livegraph_project: str | None = None
 
 
 def load_settings() -> Settings:
