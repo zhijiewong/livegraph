@@ -179,10 +179,15 @@ class GraphWriter:
         )
 
     def delete_outgoing_calls_for_file(self, file: str) -> None:
-        """Delete every CALLS edge originating in a symbol owned by this file."""
+        """Delete static CALLS edges originating in a symbol owned by this file.
+
+        Runtime-confirmed edges (``c.runtime = true``) are preserved so that
+        incremental re-ingest does not lose Phase-2 augmentation data.
+        """
         self._backend.execute(
             "MATCH (s {file: $file})-[c:CALLS]->() "
-            "WHERE s:Function OR s:Method "
+            "WHERE (s:Function OR s:Method) "
+            "  AND coalesce(c.runtime, false) = false "
             "DELETE c",
             file=file,
         )
