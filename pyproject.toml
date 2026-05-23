@@ -32,7 +32,10 @@ include = ["livegraph*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_functions = ["test_*"]
-markers = ["integration: requires a running Neo4j (deselect with -m 'not integration')"]
+markers = [
+    "integration: requires a running Neo4j (deselect with -m 'not integration')",
+    "semantic: requires the [semantic] extra installed (deselect with -m 'not semantic')",
+]
 
 [tool.mypy]
 python_version = "3.12"
