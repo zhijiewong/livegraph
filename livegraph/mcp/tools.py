@@ -186,3 +186,91 @@ def find_callees(backend: GraphBackend, project: str, qualified_name: str,
         {"callee": _symbol_from_row(r), "edge": _edge_provenance(r)}
         for r in rows
     ]
+
+
+# -- runtime_only_calls / dead_static_calls ---------------------------
+
+_CALL_PAIR_RETURN = (
+    "RETURN caller.qualified_name AS caller_qualified_name, "
+    "       caller.name AS caller_name, "
+    "       head([l IN labels(caller) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS caller_kind, "
+    "       caller.file AS caller_file, "
+    "       caller.start_line AS caller_start_line, "
+    "       caller.end_line AS caller_end_line, "
+    "       callee.qualified_name AS callee_qualified_name, "
+    "       callee.name AS callee_name, "
+    "       head([l IN labels(callee) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS callee_kind, "
+    "       callee.file AS callee_file, "
+    "       callee.start_line AS callee_start_line, "
+    "       callee.end_line AS callee_end_line, "
+    "       coalesce(c.observed_count, 0) AS observed_count "
+)
+
+_RUNTIME_ONLY_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(file:File) "
+    "WHERE $file IS NULL OR file.path = $file "
+    "MATCH (file)-[:DEFINES|HAS_METHOD*1..2]->(caller)-[c:CALLS]->(callee) "
+    "WHERE c.runtime = true AND coalesce(c.static, false) = false "
+    + _CALL_PAIR_RETURN +
+    "LIMIT $limit"
+)
+
+_DEAD_STATIC_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(file:File) "
+    "WHERE $file IS NULL OR file.path = $file "
+    "MATCH (file)-[:DEFINES|HAS_METHOD*1..2]->(caller)-[c:CALLS]->(callee) "
+    "WHERE c.static = true AND coalesce(c.runtime, false) = false "
+    + _CALL_PAIR_RETURN +
+    "LIMIT $limit"
+)
+
+
+def _pair_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "caller": _symbol_from_row({
+            "qualified_name": row["caller_qualified_name"],
+            "name": row["caller_name"], "kind": row["caller_kind"],
+            "file": row["caller_file"],
+            "start_line": row["caller_start_line"],
+            "end_line": row["caller_end_line"],
+        }),
+        "callee": _symbol_from_row({
+            "qualified_name": row["callee_qualified_name"],
+            "name": row["callee_name"], "kind": row["callee_kind"],
+            "file": row["callee_file"],
+            "start_line": row["callee_start_line"],
+            "end_line": row["callee_end_line"],
+        }),
+    }
+
+
+def runtime_only_calls(
+    backend: GraphBackend, project: str, file: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Calls observed at runtime that static analysis did NOT predict.
+
+    This is the headline livegraph query — the dynamic-dispatch edges
+    no purely static code-graph tool can produce.
+    """
+    rows = backend.execute(
+        _RUNTIME_ONLY_CYPHER, project=project, file=file, limit=limit,
+    )
+    return [
+        {**_pair_from_row(r),
+         "observed_count": int(r.get("observed_count") or 0)}
+        for r in rows
+    ]
+
+
+def dead_static_calls(
+    backend: GraphBackend, project: str, file: str | None = None,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Calls predicted by static analysis but never observed at runtime."""
+    rows = backend.execute(
+        _DEAD_STATIC_CYPHER, project=project, file=file, limit=limit,
+    )
+    return [_pair_from_row(r) for r in rows]
