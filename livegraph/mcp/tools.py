@@ -274,3 +274,76 @@ def dead_static_calls(
         _DEAD_STATIC_CYPHER, project=project, file=file, limit=limit,
     )
     return [_pair_from_row(r) for r in rows]
+
+
+# -- tests_for / untested_symbols -------------------------------------
+
+_TESTS_FOR_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(symbol) "
+    "WHERE symbol.qualified_name = $qualified_name "
+    "MATCH (t:Test)-[c:COVERS]->(symbol) "
+    "RETURN t.qualified_name AS qualified_name, t.name AS name, "
+    "       head([l IN labels(t) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       t.file AS file, t.start_line AS start_line, "
+    "       t.end_line AS end_line, "
+    "       coalesce(t.test_outcome, '') AS test_outcome, "
+    "       coalesce(t.test_duration, 0.0) AS test_duration, "
+    "       coalesce(c.lines_covered, 0) AS lines_covered, "
+    "       coalesce(c.lines_total, 0) AS lines_total, "
+    "       coalesce(c.coverage_pct, 0.0) AS coverage_pct "
+    "ORDER BY t.qualified_name"
+)
+
+_UNTESTED_SYMBOLS_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(file:File) "
+    "WHERE $file IS NULL OR file.path = $file "
+    "MATCH (file)-[:DEFINES|HAS_METHOD*1..2]->(s) "
+    "WHERE coalesce(s.runtime_observed, false) = false "
+    "  AND ("
+    "    ($kind = 'any' AND (s:Function OR s:Method)) "
+    "    OR ($kind = 'function' AND s:Function AND NOT s:Test) "
+    "    OR ($kind = 'method' AND s:Method) "
+    "  ) "
+    "RETURN s.qualified_name AS qualified_name, s.name AS name, "
+    "       head([l IN labels(s) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       s.file AS file, s.start_line AS start_line, "
+    "       s.end_line AS end_line "
+    "ORDER BY s.qualified_name "
+    "LIMIT $limit"
+)
+
+
+def tests_for(backend: GraphBackend, project: str,
+              qualified_name: str) -> list[dict[str, Any]]:
+    """Return tests that cover ``qualified_name``, with coverage data."""
+    rows = backend.execute(
+        _TESTS_FOR_CYPHER, project=project, qualified_name=qualified_name,
+    )
+    return [
+        {
+            "test": {
+                **_symbol_from_row(r),
+                "test_outcome": r.get("test_outcome") or "",
+                "test_duration": float(r.get("test_duration") or 0.0),
+            },
+            "lines_covered": int(r.get("lines_covered") or 0),
+            "lines_total": int(r.get("lines_total") or 0),
+            "coverage_pct": float(r.get("coverage_pct") or 0.0),
+        }
+        for r in rows
+    ]
+
+
+def untested_symbols(
+    backend: GraphBackend, project: str, file: str | None = None,
+    kind: str = "any", limit: int = 100,
+) -> list[dict[str, Any]]:
+    """Functions/methods that the test suite never exercised."""
+    rows = backend.execute(
+        _UNTESTED_SYMBOLS_CYPHER, project=project, file=file,
+        kind=kind, limit=limit,
+    )
+    return [_symbol_from_row(r) for r in rows]
