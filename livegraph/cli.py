@@ -8,6 +8,7 @@ import typer
 from livegraph.augment import augment_from_observations
 from livegraph.config import load_settings
 from livegraph.graph.backend import GraphBackend, Neo4jBackend
+from livegraph.incremental import detect_changes, reingest_files
 from livegraph.ingest import ingest_project
 from livegraph.mcp.server import run_stdio
 from livegraph.runtime.runner import RuntimeUnavailable, run_pytest
@@ -157,6 +158,95 @@ def mcp(
         run_stdio(backend, resolved)
     finally:
         backend.close()
+
+
+@app.command()
+def update(
+    path: str = typer.Argument(
+        None,
+        help="Project root (defaults to the Project's stored root_path)",
+    ),
+    project: str = typer.Option(
+        None, "--project",
+        help="Ingested project to update (overrides LIVEGRAPH_PROJECT env)",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Classify changes; do not write to the graph",
+    ),
+) -> None:
+    """Re-ingest only the files that have changed since the last build."""
+    settings = load_settings()
+    resolved_project = project or settings.livegraph_project
+    if not resolved_project:
+        typer.echo(
+            "LIVEGRAPH_PROJECT is not set. Pass --project NAME or set the "
+            "LIVEGRAPH_PROJECT environment variable.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    backend = _make_backend()
+    try:
+        backend.verify()
+    except ConnectionError as exc:
+        typer.echo(f"Neo4j unreachable: {exc}", err=True)
+        backend.close()
+        raise typer.Exit(code=1) from exc
+
+    try:
+        resolved_root = path or _resolve_root_path(backend, resolved_project)
+        if not resolved_root:
+            typer.echo(
+                f"Project {resolved_project!r} has no stored root_path. "
+                f"Pass PATH or re-run `livegraph build` to populate it.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+        changeset = detect_changes(resolved_root, backend, resolved_project)
+        typer.echo(
+            f"Project: {resolved_project} (root: {resolved_root})"
+        )
+        typer.echo(
+            f"Detected: {len(changeset.changed)} changed, "
+            f"{len(changeset.added)} added, "
+            f"{len(changeset.deleted)} deleted, "
+            f"{len(changeset.unchanged)} unchanged."
+        )
+
+        if dry_run:
+            for rel in changeset.changed:
+                typer.echo(f"  changed: {rel}")
+            for rel in changeset.added:
+                typer.echo(f"  added:   {rel}")
+            for rel in changeset.deleted:
+                typer.echo(f"  deleted: {rel}")
+            typer.echo("Dry-run: no changes written.")
+            return
+
+        summary = reingest_files(
+            resolved_root, backend, resolved_project,
+            changeset, batch_size=settings.livegraph_batch_size,
+        )
+        typer.echo(
+            f"Update complete: {summary.changed} changed, "
+            f"{summary.added} added, {summary.deleted} deleted, "
+            f"{summary.unchanged} unchanged, "
+            f"{summary.parse_errors} parse errors."
+        )
+    finally:
+        backend.close()
+
+
+def _resolve_root_path(backend, project: str) -> str | None:
+    """Look up Project.root_path on the graph, or None if absent."""
+    rows = backend.execute(
+        "MATCH (p:Project {name: $project}) RETURN p.root_path AS root_path",
+        project=project,
+    )
+    if not rows:
+        return None
+    return rows[0].get("root_path")
 
 
 if __name__ == "__main__":  # pragma: no cover

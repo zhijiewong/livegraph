@@ -34,22 +34,31 @@ class GraphWriter:
         self._backend = backend
         self._batch_size = batch_size
 
-    def write_files(self, project: str, files: Iterable[FileRecord]) -> None:
-        """MERGE File nodes and CONTAINS edges from the Project node."""
+    def write_files(self, project: str, files: Iterable[FileRecord],
+                    root_path: str | None = None) -> None:
+        """MERGE File nodes and CONTAINS edges from the Project node.
+
+        Stores ``content_hash`` on each File and ``root_path`` on the
+        Project (when provided). When ``root_path`` is None, the existing
+        ``Project.root_path`` is preserved via ``coalesce``.
+        """
         for batch in _batched(files, self._batch_size):
             rows = [
                 {"path": f.path, "name": f.name,
-                 "language": f.language, "parse_error": f.parse_error}
+                 "language": f.language, "parse_error": f.parse_error,
+                 "content_hash": f.content_hash}
                 for f in batch
             ]
             self._backend.execute(
                 "MERGE (p:Project {name: $project}) "
+                "SET p.root_path = coalesce($root_path, p.root_path) "
                 "WITH p UNWIND $rows AS row "
                 "MERGE (f:File {path: row.path}) "
                 "SET f.name = row.name, f.language = row.language, "
-                "    f.parse_error = row.parse_error "
+                "    f.parse_error = row.parse_error, "
+                "    f.content_hash = row.content_hash "
                 "MERGE (p)-[:CONTAINS]->(f)",
-                project=project, rows=rows,
+                project=project, root_path=root_path, rows=rows,
             )
 
     def write_definitions(self, definitions: Iterable[Definition]) -> None:
@@ -155,6 +164,80 @@ class GraphWriter:
                 "    symbol.lines_total = row.lines_total",
                 rows=rows,
             )
+
+    def delete_symbols(self, qns: Iterable[str]) -> None:
+        """DETACH DELETE every Function/Method/Class with these qualified_names."""
+        qns_list = list(qns)
+        if not qns_list:
+            return
+        self._backend.execute(
+            "UNWIND $qns AS qn "
+            "MATCH (s {qualified_name: qn}) "
+            "WHERE s:Function OR s:Method OR s:Class "
+            "DETACH DELETE s",
+            qns=qns_list,
+        )
+
+    def delete_outgoing_calls_for_file(self, file: str) -> None:
+        """Delete static-only outgoing CALLS edges from this file.
+
+        Edges with runtime=true are preserved (they represent observed
+        executions, not source-level facts), but their stale ``static``
+        flag is reset to false. Phase B re-establishes ``static=true``
+        on edges that are still in source after the update.
+        """
+        self._backend.execute(
+            "MATCH (s {file: $file})-[c:CALLS]->() "
+            "WHERE s:Function OR s:Method "
+            "SET c.static = false "
+            "WITH c "
+            "WHERE coalesce(c.runtime, false) = false "
+            "DELETE c",
+            file=file,
+        )
+
+    def delete_imports_from_file(self, file: str) -> None:
+        """Delete every IMPORTS edge originating from this file."""
+        self._backend.execute(
+            "MATCH (src:File {path: $file})-[r:IMPORTS]->() "
+            "DELETE r",
+            file=file,
+        )
+
+    def flag_runtime_stale_for_file(self, project: str, file: str) -> None:
+        """Set runtime_stale=true on every Function/Method in this file."""
+        self._backend.execute(
+            "MATCH (:Project {name: $project})-[:CONTAINS]->"
+            "(:File {path: $file})"
+            "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE s:Function OR s:Method "
+            "SET s.runtime_stale = true",
+            project=project, file=file,
+        )
+
+    def clear_runtime_stale_for_symbols(self, qns: Iterable[str]) -> None:
+        """Set runtime_stale=false on every Function/Method in these qns."""
+        qns_list = list(qns)
+        if not qns_list:
+            return
+        self._backend.execute(
+            "UNWIND $qns AS qn "
+            "MATCH (s {qualified_name: qn}) "
+            "WHERE s:Function OR s:Method "
+            "SET s.runtime_stale = false",
+            qns=qns_list,
+        )
+
+    def delete_file(self, project: str, file: str) -> None:
+        """DETACH DELETE the File and every symbol it owns (transitive)."""
+        self._backend.execute(
+            "MATCH (:Project {name: $project})-[:CONTAINS]->"
+            "(f:File {path: $file}) "
+            "OPTIONAL MATCH (f)-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE s:Function OR s:Method OR s:Class "
+            "DETACH DELETE s, f",
+            project=project, file=file,
+        )
 
     # -- helpers ----------------------------------------------------------
 

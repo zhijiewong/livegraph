@@ -27,3 +27,11 @@ def test_call_edge_defaults():
 def test_import_record():
     i = ImportRecord(file="a.py", raw="import os", line=1, module="os")
     assert i.module == "os"
+
+
+def test_file_record_supports_content_hash():
+    from livegraph.models import FileRecord
+    f1 = FileRecord(path="a.py", name="a.py")
+    assert f1.content_hash is None
+    f2 = FileRecord(path="a.py", name="a.py", content_hash="abc123")
+    assert f2.content_hash == "abc123"

@@ -27,3 +27,25 @@ def test_ingest_records_parse_errors_without_aborting(tmp_path):
     assert summary.files == 2
     assert summary.parse_errors == 1
     assert summary.definitions == 1
+
+
+def test_ingest_stores_content_hashes_and_root_path(tmp_path):
+    import hashlib
+    import os
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.ingest import ingest_project
+
+    src = "def f():\n    return 1\n"
+    (tmp_path / "m.py").write_text(src)
+    expected_hash = hashlib.sha256(src.encode()).hexdigest()
+
+    backend = FakeBackend()
+    ingest_project(str(tmp_path), backend, project_name="demo",
+                   batch_size=100)
+    write_files_calls = [c for c in backend.calls if "MERGE (p:Project" in c[0]]
+    assert write_files_calls, "expected a write_files call"
+    _query, params = write_files_calls[0]
+    rows = params["rows"]
+    by_path = {row["path"]: row for row in rows}
+    assert by_path["m.py"]["content_hash"] == expected_hash
+    assert params["root_path"] == os.path.abspath(str(tmp_path))

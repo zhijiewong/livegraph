@@ -64,3 +64,32 @@ purely static code-graph tool can run:
 **Acceptance test:** with the server registered, ask your agent
 "show me the dynamic-dispatch calls in this project". A working
 integration finds and calls `runtime_only_calls`.
+
+## Keeping the graph in sync (`livegraph update`)
+
+After the first `livegraph build`, subsequent edits don't require a full rebuild.
+Run:
+
+```bash
+LIVEGRAPH_PROJECT=myproject livegraph update
+```
+
+The command walks the project, computes SHA-256 hashes of every `.py` file,
+compares against the hashes stored on `File` nodes, and re-ingests only the
+files whose content actually changed. Deletions are removed from the graph;
+new files are added; unchanged files are skipped.
+
+Runtime data (from `livegraph trace`) is preserved on changed-file symbols
+but flagged `runtime_stale=true`. CALLS edges that were already verified at
+runtime survive incremental re-ingest. A subsequent `livegraph trace` clears
+the stale flag on every symbol that appears in the new observations.
+
+Use `--dry-run` to preview the classification without writing to the graph:
+
+```bash
+livegraph update --dry-run
+```
+
+Known limitation: a function renamed in file A while file B still calls it
+by the old name leaves an orphaned `CALLS` edge until file B is also touched.
+Run a full `livegraph build` to fully recover.

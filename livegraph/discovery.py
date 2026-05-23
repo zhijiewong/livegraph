@@ -18,3 +18,12 @@ def discover_python_files(root: str) -> Iterator[str]:
             if filename.endswith(".py"):
                 abs_path = os.path.join(dirpath, filename)
                 yield os.path.relpath(abs_path, root).replace("\\", "/")
+
+
+def module_name(rel_path: str) -> str:
+    """Dotted module name for a project-relative file path."""
+    no_ext = rel_path[:-3] if rel_path.endswith(".py") else rel_path
+    parts = no_ext.split("/")
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
