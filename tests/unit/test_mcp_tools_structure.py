@@ -44,3 +44,11 @@ def test_graph_status_handles_empty_graph():
     assert result["project"] == "empty"
     assert result["files"] == 0
     assert result["calls_total"] == 0
+
+
+def test_imports_out_passes_limit_parameter():
+    backend = FakeBackend(rows=[])
+    from livegraph.mcp.tools import imports
+    imports(backend, project="p", file="a.py", direction="out", limit=5)
+    _q, params = backend.calls[0]
+    assert params["limit"] == 5

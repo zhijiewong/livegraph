@@ -118,6 +118,8 @@ _FIND_CALLERS_CYPHER = (
     "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
     "-[:DEFINES|HAS_METHOD*1..2]->(callee) "
     "WHERE callee.qualified_name = $qualified_name "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(caller) "
     "MATCH (caller)-[c:CALLS]->(callee) "
     f"WHERE {_PROVENANCE_PREDICATE} "
     "RETURN caller.qualified_name AS qualified_name, "
@@ -136,6 +138,8 @@ _FIND_CALLEES_CYPHER = (
     "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
     "-[:DEFINES|HAS_METHOD*1..2]->(caller) "
     "WHERE caller.qualified_name = $qualified_name "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(callee) "
     "MATCH (caller)-[c:CALLS]->(callee) "
     f"WHERE {_PROVENANCE_PREDICATE} "
     "RETURN callee.qualified_name AS qualified_name, "
@@ -293,7 +297,7 @@ _TESTS_FOR_CYPHER = (
     "       coalesce(c.lines_covered, 0) AS lines_covered, "
     "       coalesce(c.lines_total, 0) AS lines_total, "
     "       coalesce(c.coverage_pct, 0.0) AS coverage_pct "
-    "ORDER BY t.qualified_name"
+    "ORDER BY t.qualified_name LIMIT $limit"
 )
 
 _UNTESTED_SYMBOLS_CYPHER = (
@@ -302,7 +306,7 @@ _UNTESTED_SYMBOLS_CYPHER = (
     "MATCH (file)-[:DEFINES|HAS_METHOD*1..2]->(s) "
     "WHERE coalesce(s.runtime_observed, false) = false "
     "  AND ("
-    "    ($kind = 'any' AND (s:Function OR s:Method)) "
+    "    ($kind = 'any' AND (s:Function OR s:Method) AND NOT s:Test) "
     "    OR ($kind = 'function' AND s:Function AND NOT s:Test) "
     "    OR ($kind = 'method' AND s:Method) "
     "  ) "
@@ -317,10 +321,12 @@ _UNTESTED_SYMBOLS_CYPHER = (
 
 
 def tests_for(backend: GraphBackend, project: str,
-              qualified_name: str) -> list[dict[str, Any]]:
+              qualified_name: str,
+              limit: int = 50) -> list[dict[str, Any]]:
     """Return tests that cover ``qualified_name``, with coverage data."""
     rows = backend.execute(
         _TESTS_FOR_CYPHER, project=project, qualified_name=qualified_name,
+        limit=limit,
     )
     return [
         {
@@ -357,14 +363,14 @@ _IMPORTS_OUT_CYPHER = (
     "RETURN coalesce(t.path, t.name) AS target, "
     "       CASE WHEN t:File THEN 'file' ELSE t.kind END AS kind, "
     "       r.raw AS raw, r.line AS line "
-    "ORDER BY r.line"
+    "ORDER BY r.line LIMIT $limit"
 )
 
 _IMPORTS_IN_CYPHER = (
     "MATCH (:Project {name: $project})-[:CONTAINS]->(src:File)"
     "-[r:IMPORTS]->(dst:File {path: $file}) "
     "RETURN src.path AS source_file, r.raw AS raw, r.line AS line "
-    "ORDER BY src.path, r.line"
+    "ORDER BY src.path, r.line LIMIT $limit"
 )
 
 _GRAPH_STATUS_CYPHER = (
@@ -402,11 +408,12 @@ _GRAPH_STATUS_CYPHER = (
 
 
 def imports(backend: GraphBackend, project: str, file: str,
-            direction: str = "out") -> list[dict[str, Any]]:
+            direction: str = "out",
+            limit: int = 100) -> list[dict[str, Any]]:
     """Imports out of (or into) ``file`` within the project."""
     if direction == "out":
         rows = backend.execute(
-            _IMPORTS_OUT_CYPHER, project=project, file=file,
+            _IMPORTS_OUT_CYPHER, project=project, file=file, limit=limit,
         )
         return [
             {"target": r["target"], "kind": r.get("kind") or "thirdparty",
@@ -415,7 +422,7 @@ def imports(backend: GraphBackend, project: str, file: str,
         ]
     if direction == "in":
         rows = backend.execute(
-            _IMPORTS_IN_CYPHER, project=project, file=file,
+            _IMPORTS_IN_CYPHER, project=project, file=file, limit=limit,
         )
         return [
             {"source_file": r["source_file"],

@@ -82,11 +82,12 @@ def build_server() -> FastMCP:
                                        file=file, limit=limit)
 
     @mcp.tool()
-    def tests_for(qualified_name: str) -> list[dict[str, Any]]:
+    def tests_for(qualified_name: str,
+                  limit: int = 50) -> list[dict[str, Any]]:
         """Tests that cover this symbol, with per-test coverage."""
         backend, project = _require_state()
         return tools.tests_for(backend, project,
-                               qualified_name=qualified_name)
+                               qualified_name=qualified_name, limit=limit)
 
     @mcp.tool()
     def untested_symbols(file: str | None = None, kind: str = "any",
@@ -97,12 +98,12 @@ def build_server() -> FastMCP:
                                       kind=kind, limit=limit)
 
     @mcp.tool()
-    def imports(file: str,
-                direction: str = "out") -> list[dict[str, Any]]:
+    def imports(file: str, direction: str = "out",
+                limit: int = 100) -> list[dict[str, Any]]:
         """Outgoing (out) or incoming (in) imports for a file."""
         backend, project = _require_state()
         return tools.imports(backend, project, file=file,
-                             direction=direction)
+                             direction=direction, limit=limit)
 
     @mcp.tool()
     def graph_status() -> dict[str, Any]:
@@ -113,11 +114,32 @@ def build_server() -> FastMCP:
     return mcp
 
 
+def _warn_if_project_missing(backend: GraphBackend, project: str) -> None:
+    """Log a stderr warning if the project node doesn't exist."""
+    import sys
+    try:
+        rows = backend.execute(
+            "MATCH (p:Project {name: $project}) RETURN count(p) AS n",
+            project=project,
+        )
+        if rows and (rows[0].get("n") or 0) == 0:
+            print(
+                f"warning: project {project!r} not found in graph — "
+                f"tool calls will return empty results until you run "
+                f"`livegraph build` for this project.",
+                file=sys.stderr,
+            )
+    except Exception:
+        # Don't fail bootstrap on a probe error; tool calls will surface real issues.
+        pass
+
+
 def bootstrap(backend: GraphBackend, project: str) -> FastMCP:
     """Initialize global state and return a configured FastMCP server."""
     global _BACKEND, _PROJECT
     _BACKEND = backend
     _PROJECT = project
+    _warn_if_project_missing(backend, project)
     return build_server()
 
 

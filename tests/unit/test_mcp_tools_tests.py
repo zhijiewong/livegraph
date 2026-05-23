@@ -42,3 +42,11 @@ def test_untested_symbols_kind_any_filters_to_function_or_method():
     untested_symbols(backend, project="p", kind="any")
     _q, params = backend.calls[0]
     assert params["kind"] == "any"
+
+
+def test_tests_for_passes_limit_parameter():
+    backend = FakeBackend(rows=[])
+    from livegraph.mcp.tools import tests_for
+    tests_for(backend, project="p", qualified_name="x", limit=5)
+    _q, params = backend.calls[0]
+    assert params["limit"] == 5
