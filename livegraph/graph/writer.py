@@ -5,7 +5,9 @@ from collections.abc import Iterable, Iterator
 from typing import Any, TypeVar
 
 from livegraph.graph.backend import GraphBackend
-from livegraph.models import CallEdge, Definition, FileRecord
+from livegraph.models import (
+    CallEdge, CoverageRecord, Definition, FileRecord, RuntimeCall, TestResult,
+)
 
 _T = TypeVar("_T")
 
@@ -80,6 +82,75 @@ class GraphWriter:
                 "SET c.static = row.static, c.runtime = row.runtime, "
                 "    c.observed_count = row.observed_count, "
                 "    c.call_site_lines = row.call_site_lines",
+                rows=rows,
+            )
+
+    def write_runtime_calls(
+        self, calls: Iterable[RuntimeCall],
+        counts: dict[tuple[str, str], int],
+    ) -> None:
+        """MERGE CALLS edges observed at runtime, setting provenance.
+
+        ``counts`` maps a (caller_qn, callee_qn) pair to its observed
+        count aggregated across all tests.
+        """
+        distinct = {(c.caller_qn, c.callee_qn) for c in calls}
+        rows_all = [
+            {"caller": caller, "callee": callee, "runtime": True,
+             "observed_count": counts.get((caller, callee), 0)}
+            for caller, callee in distinct
+        ]
+        for batch in _batched(rows_all, self._batch_size):
+            self._backend.execute(
+                "UNWIND $rows AS row "
+                "MATCH (caller {qualified_name: row.caller}) "
+                "MATCH (callee {qualified_name: row.callee}) "
+                "MERGE (caller)-[c:CALLS]->(callee) "
+                "SET c.runtime = row.runtime, "
+                "    c.observed_count = row.observed_count, "
+                "    c.static = coalesce(c.static, false)",
+                rows=list(batch),
+            )
+
+    def write_test_results(self, results: Iterable[TestResult]) -> None:
+        """Add the :Test label and outcome to each test's Function node."""
+        for batch in _batched(results, self._batch_size):
+            rows = [
+                {"qualified_name": r.qualified_name, "outcome": r.outcome,
+                 "duration": r.duration}
+                for r in batch
+            ]
+            self._backend.execute(
+                "UNWIND $rows AS row "
+                "MERGE (t:Function {qualified_name: row.qualified_name}) "
+                "ON CREATE SET t.runtime_only = true "
+                "SET t:Test, t.test_outcome = row.outcome, "
+                "    t.test_duration = row.duration",
+                rows=rows,
+            )
+
+    def write_coverage(self, records: Iterable[CoverageRecord]) -> None:
+        """MERGE COVERS edges and aggregate coverage onto symbol nodes."""
+        for batch in _batched(records, self._batch_size):
+            rows = [
+                {"test": r.test_qn, "symbol": r.symbol_qn,
+                 "lines_covered": r.lines_covered,
+                 "lines_total": r.lines_total,
+                 "coverage_pct": r.coverage_pct}
+                for r in batch
+            ]
+            self._backend.execute(
+                "UNWIND $rows AS row "
+                "MATCH (test {qualified_name: row.test}) "
+                "MATCH (symbol {qualified_name: row.symbol}) "
+                "MERGE (test)-[c:COVERS]->(symbol) "
+                "SET c.lines_covered = row.lines_covered, "
+                "    c.lines_total = row.lines_total, "
+                "    c.coverage_pct = row.coverage_pct "
+                "SET symbol.runtime_observed = true, "
+                "    symbol.coverage_pct = row.coverage_pct, "
+                "    symbol.lines_covered = row.lines_covered, "
+                "    symbol.lines_total = row.lines_total",
                 rows=rows,
             )
 
