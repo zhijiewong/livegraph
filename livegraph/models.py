@@ -15,6 +15,7 @@ class FileRecord:
     name: str            # basename
     language: str = "python"
     parse_error: bool = False
+    content_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

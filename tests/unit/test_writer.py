@@ -20,7 +20,8 @@ def test_write_files_passes_rows_as_param():
     )
     _query, params = backend.calls[0]
     assert params["rows"] == [
-        {"path": "a.py", "name": "a.py", "language": "python", "parse_error": False}
+        {"path": "a.py", "name": "a.py", "language": "python", "parse_error": False,
+         "content_hash": None}
     ]
     assert params["project"] == "proj"
 
@@ -59,3 +60,35 @@ def test_write_calls_preserves_runtime_provenance_on_reingest():
     query, _params = backend.calls[0]
     assert "coalesce(c.runtime" in query
     assert "coalesce(" in query and "c.observed_count" in query
+
+
+def test_write_files_includes_content_hash_in_row():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    from livegraph.models import FileRecord
+
+    backend = FakeBackend()
+    writer = GraphWriter(backend, batch_size=100)
+    writer.write_files(
+        "proj",
+        [FileRecord(path="a.py", name="a.py", content_hash="deadbeef")],
+        root_path="/tmp/proj",
+    )
+    query, params = backend.calls[0]
+    assert "content_hash" in query
+    assert params["rows"][0]["content_hash"] == "deadbeef"
+    assert params["root_path"] == "/tmp/proj"
+    assert "root_path" in query
+
+
+def test_write_files_root_path_is_optional():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    from livegraph.models import FileRecord
+
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).write_files(
+        "proj", [FileRecord(path="a.py", name="a.py")]
+    )
+    _query, params = backend.calls[0]
+    assert params.get("root_path") is None

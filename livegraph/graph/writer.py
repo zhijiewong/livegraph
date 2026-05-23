@@ -34,22 +34,31 @@ class GraphWriter:
         self._backend = backend
         self._batch_size = batch_size
 
-    def write_files(self, project: str, files: Iterable[FileRecord]) -> None:
-        """MERGE File nodes and CONTAINS edges from the Project node."""
+    def write_files(self, project: str, files: Iterable[FileRecord],
+                    root_path: str | None = None) -> None:
+        """MERGE File nodes and CONTAINS edges from the Project node.
+
+        Stores ``content_hash`` on each File and ``root_path`` on the
+        Project (when provided). When ``root_path`` is None, the existing
+        ``Project.root_path`` is preserved via ``coalesce``.
+        """
         for batch in _batched(files, self._batch_size):
             rows = [
                 {"path": f.path, "name": f.name,
-                 "language": f.language, "parse_error": f.parse_error}
+                 "language": f.language, "parse_error": f.parse_error,
+                 "content_hash": f.content_hash}
                 for f in batch
             ]
             self._backend.execute(
                 "MERGE (p:Project {name: $project}) "
+                "SET p.root_path = coalesce($root_path, p.root_path) "
                 "WITH p UNWIND $rows AS row "
                 "MERGE (f:File {path: row.path}) "
                 "SET f.name = row.name, f.language = row.language, "
-                "    f.parse_error = row.parse_error "
+                "    f.parse_error = row.parse_error, "
+                "    f.content_hash = row.content_hash "
                 "MERGE (p)-[:CONTAINS]->(f)",
-                project=project, rows=rows,
+                project=project, root_path=root_path, rows=rows,
             )
 
     def write_definitions(self, definitions: Iterable[Definition]) -> None:
