@@ -1,6 +1,7 @@
 """Phase 1: build the static graph from a Python codebase."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from dataclasses import dataclass
@@ -60,9 +61,11 @@ def ingest_project(
     for rel in rel_paths:
         with open(os.path.join(root, rel), "rb") as handle:
             source = handle.read()
+        content_hash = hashlib.sha256(source).hexdigest()
         broken = has_errors(parse_source(source))
         file_records.append(FileRecord(
-            path=rel, name=os.path.basename(rel), parse_error=broken))
+            path=rel, name=os.path.basename(rel), parse_error=broken,
+            content_hash=content_hash))
         if broken:
             parse_errors += 1
             logger.warning("skipping unparseable file: %s", rel)
@@ -76,7 +79,8 @@ def ingest_project(
     call_edges = resolve_calls(all_raw_calls, defined)
     resolved_imports = resolve_imports(all_imports, project_modules)
 
-    writer.write_files(project_name, file_records)
+    writer.write_files(project_name, file_records,
+                       root_path=os.path.abspath(root))
     writer.write_definitions(all_defs)
     _write_imports(backend, resolved_imports, batch_size)
     writer.write_calls(call_edges)
