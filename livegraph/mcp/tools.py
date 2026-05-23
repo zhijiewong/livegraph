@@ -347,3 +347,103 @@ def untested_symbols(
         kind=kind, limit=limit,
     )
     return [_symbol_from_row(r) for r in rows]
+
+
+# -- imports / graph_status -------------------------------------------
+
+_IMPORTS_OUT_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(src:File "
+    "    {path: $file})-[r:IMPORTS]->(t) "
+    "RETURN coalesce(t.path, t.name) AS target, "
+    "       CASE WHEN t:File THEN 'file' ELSE t.kind END AS kind, "
+    "       r.raw AS raw, r.line AS line "
+    "ORDER BY r.line"
+)
+
+_IMPORTS_IN_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(src:File)"
+    "-[r:IMPORTS]->(dst:File {path: $file}) "
+    "RETURN src.path AS source_file, r.raw AS raw, r.line AS line "
+    "ORDER BY src.path, r.line"
+)
+
+_GRAPH_STATUS_CYPHER = (
+    "OPTIONAL MATCH (:Project {name: $project})-[:CONTAINS]->(f:File) "
+    "WITH count(DISTINCT f) AS files "
+    "OPTIONAL MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES]->(c:Class) "
+    "WITH files, count(DISTINCT c) AS classes "
+    "OPTIONAL MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES]->(fn:Function) WHERE NOT fn:Test "
+    "WITH files, classes, count(DISTINCT fn) AS functions "
+    "OPTIONAL MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES]->(:Class)-[:HAS_METHOD]->(m:Method) "
+    "WITH files, classes, functions, count(DISTINCT m) AS methods "
+    "OPTIONAL MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES]->(t:Test) "
+    "WITH files, classes, functions, methods, "
+    "     count(DISTINCT t) AS tests "
+    "OPTIONAL MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(:Function|:Method)"
+    "-[ec:CALLS]->() "
+    "WITH files, classes, functions, methods, tests, "
+    "     count(DISTINCT ec) AS calls_total, "
+    "     sum(CASE WHEN coalesce(ec.runtime,false) AND NOT coalesce(ec.static,false) "
+    "              THEN 1 ELSE 0 END) AS calls_runtime_only, "
+    "     sum(CASE WHEN coalesce(ec.static,false) AND NOT coalesce(ec.runtime,false) "
+    "              THEN 1 ELSE 0 END) AS calls_static_only, "
+    "     sum(CASE WHEN coalesce(ec.static,false) AND coalesce(ec.runtime,false) "
+    "              THEN 1 ELSE 0 END) AS calls_both "
+    "RETURN $project AS project, files, classes, functions, methods, "
+    "       tests, calls_total, calls_runtime_only, "
+    "       calls_static_only, calls_both"
+)
+
+
+def imports(backend: GraphBackend, project: str, file: str,
+            direction: str = "out") -> list[dict[str, Any]]:
+    """Imports out of (or into) ``file`` within the project."""
+    if direction == "out":
+        rows = backend.execute(
+            _IMPORTS_OUT_CYPHER, project=project, file=file,
+        )
+        return [
+            {"target": r["target"], "kind": r.get("kind") or "thirdparty",
+             "raw": r.get("raw") or "", "line": int(r.get("line") or 0)}
+            for r in rows
+        ]
+    if direction == "in":
+        rows = backend.execute(
+            _IMPORTS_IN_CYPHER, project=project, file=file,
+        )
+        return [
+            {"source_file": r["source_file"],
+             "raw": r.get("raw") or "", "line": int(r.get("line") or 0)}
+            for r in rows
+        ]
+    raise ValueError(
+        f"imports direction must be 'out' or 'in', got {direction!r}"
+    )
+
+
+_GRAPH_STATUS_KEYS = (
+    "project", "files", "classes", "functions", "methods", "tests",
+    "calls_total", "calls_runtime_only", "calls_static_only", "calls_both",
+)
+
+
+def graph_status(backend: GraphBackend,
+                 project: str) -> dict[str, Any]:
+    """Aggregate counts for the configured project."""
+    rows = backend.execute(_GRAPH_STATUS_CYPHER, project=project)
+    if not rows:
+        return {
+            "project": project,
+            **{k: 0 for k in _GRAPH_STATUS_KEYS if k != "project"},
+        }
+    row = rows[0]
+    return {
+        "project": row.get("project") or project,
+        **{k: int(row.get(k) or 0) for k in _GRAPH_STATUS_KEYS
+           if k != "project"},
+    }
