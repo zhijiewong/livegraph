@@ -46,3 +46,44 @@ def test_build_runs_both_phases(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert "Phase 1 complete" in result.stdout
     assert "Phase 2 complete" in result.stdout
+
+
+def test_mcp_command_errors_when_project_missing(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_PROJECT", raising=False)
+    result = runner.invoke(cli.app, ["mcp"])
+    assert result.exit_code != 0
+    assert "LIVEGRAPH_PROJECT" in (result.output + (result.stderr or ""))
+
+
+def test_mcp_command_invokes_run_stdio_with_project(monkeypatch):
+    backend = FakeBackend()
+    monkeypatch.setattr(cli, "_make_backend", lambda: backend)
+
+    captured: dict = {}
+
+    def fake_run_stdio(b, project):
+        captured["backend"] = b
+        captured["project"] = project
+
+    monkeypatch.setattr("livegraph.cli.run_stdio", fake_run_stdio)
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "sample")
+    result = runner.invoke(cli.app, ["mcp"])
+    assert result.exit_code == 0
+    assert captured["backend"] is backend
+    assert captured["project"] == "sample"
+
+
+def test_mcp_command_project_flag_overrides_env(monkeypatch):
+    backend = FakeBackend()
+    monkeypatch.setattr(cli, "_make_backend", lambda: backend)
+
+    captured: dict = {}
+
+    def fake_run_stdio(b, project):
+        captured["project"] = project
+
+    monkeypatch.setattr("livegraph.cli.run_stdio", fake_run_stdio)
+    monkeypatch.setenv("LIVEGRAPH_PROJECT", "fromenv")
+    result = runner.invoke(cli.app, ["mcp", "--project", "fromflag"])
+    assert result.exit_code == 0
+    assert captured["project"] == "fromflag"

@@ -9,6 +9,7 @@ from livegraph.augment import augment_from_observations
 from livegraph.config import load_settings
 from livegraph.graph.backend import GraphBackend, Neo4jBackend
 from livegraph.ingest import ingest_project
+from livegraph.mcp.server import run_stdio
 from livegraph.runtime.runner import RuntimeUnavailable, run_pytest
 
 app = typer.Typer(help="A runtime-augmented code knowledge graph for Python.")
@@ -123,6 +124,37 @@ def build(
             )
         except RuntimeUnavailable as exc:
             typer.echo(f"Phase 2 skipped: {exc}", err=True)
+    finally:
+        backend.close()
+
+
+@app.command()
+def mcp(
+    project: str = typer.Option(
+        None, "--project",
+        help="Ingested project to serve (overrides LIVEGRAPH_PROJECT env)",
+    ),
+) -> None:
+    """Run the MCP server over stdio."""
+    settings = load_settings()
+    resolved = project or settings.livegraph_project
+    if not resolved:
+        typer.echo(
+            "LIVEGRAPH_PROJECT is not set. Pass --project NAME or set the "
+            "LIVEGRAPH_PROJECT environment variable to the name of an "
+            "ingested project.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    backend = _make_backend()
+    try:
+        backend.verify()
+    except ConnectionError as exc:
+        typer.echo(f"Neo4j unreachable: {exc}", err=True)
+        backend.close()
+        raise typer.Exit(code=1) from exc
+    try:
+        run_stdio(backend, resolved)
     finally:
         backend.close()
 
