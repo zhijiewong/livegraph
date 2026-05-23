@@ -81,7 +81,7 @@ def augment_from_observations(
     writer.write_runtime_calls(runtime_calls, counts)
     writer.write_coverage(coverage_records)
 
-    # Phase 5: clear runtime_stale=false on every symbol observed in this
+    # Phase 5: set runtime_stale=false on every symbol observed in this
     # trace run. Symbols not observed keep whatever flag they had.
     observed_qns: set[str] = set()
     for rc in observations.get("runtime_calls", []):

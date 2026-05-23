@@ -120,6 +120,7 @@ def test_delete_outgoing_calls_for_file_issues_match_delete():
     GraphWriter(backend, batch_size=100).delete_outgoing_calls_for_file("a.py")
     query, params = backend.calls[0]
     assert "[c:CALLS]" in query and "DELETE c" in query
+    assert "SET c.static = false" in query
     assert params["file"] == "a.py"
 
 

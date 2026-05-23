@@ -10,7 +10,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 
-from livegraph.discovery import discover_python_files
+from livegraph.discovery import discover_python_files, module_name
 from livegraph.graph.backend import GraphBackend
 from livegraph.graph.writer import GraphWriter
 from livegraph.models import FileRecord
@@ -74,14 +74,6 @@ class UpdateSummary:
     parse_errors: int
 
 
-def _module_name(rel_path: str) -> str:
-    """Dotted module name for a project-relative file path."""
-    no_ext = rel_path[:-3] if rel_path.endswith(".py") else rel_path
-    parts = no_ext.split("/")
-    if parts[-1] == "__init__":
-        parts = parts[:-1]
-    return ".".join(parts)
-
 
 def _read_project_defined(backend: GraphBackend, project: str) -> set[str]:
     """Return every Function/Method/Class qualified_name in the project."""
@@ -104,7 +96,7 @@ def _read_project_modules(backend: GraphBackend,
         project=project,
     )
     paths = [row["path"] for row in rows]
-    return {_module_name(p): p for p in paths}
+    return {module_name(p): p for p in paths}
 
 
 def _read_old_qns_for_file(backend: GraphBackend, project: str,
@@ -199,12 +191,13 @@ def reingest_files(
 
 def _write_imports_for_file(backend: GraphBackend, imports: list,
                             batch_size: int) -> None:
-    """Write IMPORTS edges for a single file's resolved imports."""
+    """Write IMPORTS edges for a single file's resolved imports, batched."""
     files = [i for i in imports if i.target_kind == "file"]
     modules = [i for i in imports if i.target_kind != "file"]
-    if files:
+    for start in range(0, len(files), batch_size):
         rows = [{"file": i.file, "target": i.target, "raw": i.raw,
-                 "line": i.line} for i in files]
+                 "line": i.line}
+                for i in files[start:start + batch_size]]
         backend.execute(
             "UNWIND $rows AS row "
             "MATCH (src:File {path: row.file}) "
@@ -213,9 +206,10 @@ def _write_imports_for_file(backend: GraphBackend, imports: list,
             "SET r.raw = row.raw, r.line = row.line",
             rows=rows,
         )
-    if modules:
+    for start in range(0, len(modules), batch_size):
         rows = [{"file": i.file, "target": i.target, "kind": i.target_kind,
-                 "raw": i.raw, "line": i.line} for i in modules]
+                 "raw": i.raw, "line": i.line}
+                for i in modules[start:start + batch_size]]
         backend.execute(
             "UNWIND $rows AS row "
             "MATCH (src:File {path: row.file}) "
