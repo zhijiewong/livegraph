@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 11 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 13 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -29,7 +29,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 
 def build_server() -> FastMCP:
-    """Construct a FastMCP server with all 11 tools registered."""
+    """Construct a FastMCP server with all 13 tools registered."""
     mcp = FastMCP("livegraph")
 
     @mcp.tool()
@@ -129,6 +129,43 @@ def build_server() -> FastMCP:
         return tools.change_impact(
             backend, project, diff=diff,
             max_depth=max_depth, provenance=provenance, limit=limit,
+        )
+
+    @mcp.tool()
+    def describe_schema() -> dict[str, Any]:
+        """Return the static schema description for the configured project.
+
+        Includes node labels, edge types, safety rules, the auto-injected
+        $project parameter convention, and six example queries showing the
+        idioms (project scoping, label routing, provenance flags).
+
+        The agent should call this once per session and cache the response.
+        """
+        backend, project = _require_state()
+        return tools.describe_schema(backend, project)
+
+    @mcp.tool()
+    def run_cypher(
+        query: str, params: dict[str, Any] | None = None,
+        row_limit: int = 1000, timeout_seconds: int = 30,
+    ) -> dict[str, Any]:
+        """Run a read-only Cypher query against the project's graph.
+
+        - ``query``: Cypher string. ``$project`` is auto-injected unless
+          ``params`` overrides it.
+        - ``params``: parameter map; any forbidden keyword (CREATE, MERGE,
+          DELETE, SET, REMOVE, DROP, LOAD CSV, USING PERIODIC COMMIT,
+          CALL) is rejected before execution.
+        - ``row_limit``: server-side truncation. If exceeded the response
+          includes ``truncated: true``.
+        - ``timeout_seconds``: per-transaction timeout.
+
+        Returns ``{rows, truncated, row_count, summary}``.
+        """
+        backend, project = _require_state()
+        return tools.run_cypher(
+            backend, project, query=query, params=params,
+            row_limit=row_limit, timeout_seconds=timeout_seconds,
         )
 
     return mcp
