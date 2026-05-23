@@ -20,6 +20,7 @@ livegraph = "livegraph.cli:app"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "mypy>=1.13", "ruff>=0.8"]
+semantic = ["sentence-transformers>=3.0"]
 
 [build-system]
 requires = ["setuptools>=68"]
