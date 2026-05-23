@@ -104,3 +104,85 @@ def get_source(backend: GraphBackend, project: str,
         "runtime_observed": bool(row.get("runtime_observed")),
         "coverage_pct": float(row.get("coverage_pct") or 0.0),
     }
+
+
+# -- find_callers / find_callees --------------------------------------
+
+_PROVENANCE_PREDICATE = (
+    "($provenance = 'any' "
+    " OR ($provenance = 'static' AND c.static = true) "
+    " OR ($provenance = 'runtime' AND c.runtime = true))"
+)
+
+_FIND_CALLERS_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(callee) "
+    "WHERE callee.qualified_name = $qualified_name "
+    "MATCH (caller)-[c:CALLS]->(callee) "
+    f"WHERE {_PROVENANCE_PREDICATE} "
+    "RETURN caller.qualified_name AS qualified_name, "
+    "       caller.name AS name, "
+    "       head([l IN labels(caller) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       caller.file AS file, caller.start_line AS start_line, "
+    "       caller.end_line AS end_line, "
+    "       c.static AS static, coalesce(c.runtime, false) AS runtime, "
+    "       coalesce(c.observed_count, 0) AS observed_count, "
+    "       coalesce(c.call_site_lines, []) AS call_site_lines "
+    "LIMIT $limit"
+)
+
+_FIND_CALLEES_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(caller) "
+    "WHERE caller.qualified_name = $qualified_name "
+    "MATCH (caller)-[c:CALLS]->(callee) "
+    f"WHERE {_PROVENANCE_PREDICATE} "
+    "RETURN callee.qualified_name AS qualified_name, "
+    "       callee.name AS name, "
+    "       head([l IN labels(callee) WHERE l IN ['Function','Method','Class'] "
+    "             | toLower(l)]) AS kind, "
+    "       callee.file AS file, callee.start_line AS start_line, "
+    "       callee.end_line AS end_line, "
+    "       c.static AS static, coalesce(c.runtime, false) AS runtime, "
+    "       coalesce(c.observed_count, 0) AS observed_count, "
+    "       coalesce(c.call_site_lines, []) AS call_site_lines "
+    "LIMIT $limit"
+)
+
+
+def _edge_provenance(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "static": bool(row.get("static")),
+        "runtime": bool(row.get("runtime")),
+        "observed_count": int(row.get("observed_count") or 0),
+        "call_site_lines": list(row.get("call_site_lines") or []),
+    }
+
+
+def find_callers(backend: GraphBackend, project: str, qualified_name: str,
+                 provenance: str = "any",
+                 limit: int = 50) -> list[dict[str, Any]]:
+    """Return who calls ``qualified_name``, filtered by ``provenance``."""
+    rows = backend.execute(
+        _FIND_CALLERS_CYPHER, project=project,
+        qualified_name=qualified_name, provenance=provenance, limit=limit,
+    )
+    return [
+        {"caller": _symbol_from_row(r), "edge": _edge_provenance(r)}
+        for r in rows
+    ]
+
+
+def find_callees(backend: GraphBackend, project: str, qualified_name: str,
+                 provenance: str = "any",
+                 limit: int = 50) -> list[dict[str, Any]]:
+    """Return what ``qualified_name`` calls, filtered by ``provenance``."""
+    rows = backend.execute(
+        _FIND_CALLEES_CYPHER, project=project,
+        qualified_name=qualified_name, provenance=provenance, limit=limit,
+    )
+    return [
+        {"callee": _symbol_from_row(r), "edge": _edge_provenance(r)}
+        for r in rows
+    ]
