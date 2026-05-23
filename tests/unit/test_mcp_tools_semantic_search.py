@@ -79,3 +79,16 @@ def test_semantic_search_passes_limit():
     assert query_calls
     _q, params = query_calls[0]
     assert params["limit"] == 5
+
+
+def test_semantic_search_rejects_invalid_kind():
+    backend = FakeBackend(rows=[
+        {"name": "livegraph_symbol_embeddings", "type": "VECTOR"},
+    ])
+    provider = _MockProvider()
+    result = semantic_search(backend, project="sample", provider=provider,
+                            query="x", kind="fn")
+    assert result["results"] == []
+    assert "invalid kind" in (result.get("warning") or "").lower()
+    # The provider must NOT have been called.
+    assert provider.encode_calls == []

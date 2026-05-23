@@ -24,10 +24,12 @@ _PROVIDER: EmbeddingProvider | None = None
 
 
 def _get_or_load_provider() -> EmbeddingProvider | None:
-    """Return the lazily-loaded LocalSTProvider, or None if extra is missing.
+    """Return the lazily-loaded LocalSTProvider, or None on load failure.
 
-    First call loads the model (slow, ~3s for MiniLM). Subsequent calls
-    reuse the loaded provider.
+    Catches both `EmbeddingExtraMissing` (extra not installed) and any
+    other exception during model construction (network failure, bad model
+    name, disk full, etc.). Logs the failure to stderr so operators can
+    debug; the MCP tool surfaces a graceful warning either way.
     """
     global _PROVIDER
     if _PROVIDER is not None:
@@ -43,6 +45,14 @@ def _get_or_load_provider() -> EmbeddingProvider | None:
         )
     except EmbeddingExtraMissing:
         return None
+    except Exception as exc:
+        import sys
+        print(
+            f"livegraph: failed to load embedding model: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return None
     return _PROVIDER
 
 
@@ -57,7 +67,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 def build_server(default_row_limit: int = 1000,
                  default_timeout_seconds: int = 30) -> FastMCP:
-    """Construct a FastMCP server with all 13 tools registered.
+    """Construct a FastMCP server with all 14 tools registered.
 
     Tool wrappers reference the module-level state set by ``bootstrap``.
     ``default_row_limit`` and ``default_timeout_seconds`` are the values
@@ -262,9 +272,10 @@ def bootstrap(
     default_timeout_seconds: int = 30,
 ) -> FastMCP:
     """Initialize global state and return a configured FastMCP server."""
-    global _BACKEND, _PROJECT
+    global _BACKEND, _PROJECT, _PROVIDER
     _BACKEND = backend
     _PROJECT = project
+    _PROVIDER = None
     _warn_if_project_missing(backend, project)
     return build_server(
         default_row_limit=default_row_limit,

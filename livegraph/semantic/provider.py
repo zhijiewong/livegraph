@@ -32,6 +32,7 @@ class EmbeddingProvider(Protocol):
 
     name: str
     dimensions: int
+    batch_size: int
 
     def encode(self, texts: list[str]) -> list[list[float]]: ...
 
@@ -72,7 +73,20 @@ class LocalSTProvider:
         self.name = model_name
         self.batch_size = batch_size
         self.dimensions = int(
-            self._model.get_sentence_embedding_dimension()
+            self._get_dimensions(self._model)
+        )
+
+    @staticmethod
+    def _get_dimensions(model: Any) -> int:
+        """Use the non-deprecated dimension API when available."""
+        for attr in ("get_embedding_dimension",
+                     "get_sentence_embedding_dimension"):
+            getter = getattr(model, attr, None)
+            if getter is not None:
+                return int(getter())
+        raise RuntimeError(
+            "Model does not expose a get_embedding_dimension() or "
+            "get_sentence_embedding_dimension() method"
         )
 
     def encode(self, texts: list[str]) -> list[list[float]]:

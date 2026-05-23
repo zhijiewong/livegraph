@@ -969,6 +969,16 @@ def semantic_search(
     query: str, limit: int = 10, kind: str = "any",
 ) -> dict[str, Any]:
     """Find code symbols by vector similarity to ``query``."""
+    if kind not in ("any", "function", "method"):
+        return {
+            "results": [],
+            "model": provider.name,
+            "embedded_count": 0,
+            "warning": (
+                f"invalid kind {kind!r}; "
+                f"must be one of 'any', 'function', 'method'"
+            ),
+        }
     if not _index_exists(backend):
         return {
             "results": [],
