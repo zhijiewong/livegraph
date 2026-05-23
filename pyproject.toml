@@ -12,6 +12,7 @@ dependencies = [
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
     "typer>=0.15",
+    "mcp>=1.10",
 ]
 
 [project.scripts]
