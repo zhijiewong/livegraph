@@ -1,0 +1,40 @@
+[project]
+name = "livegraph"
+version = "0.1.0"
+description = "A runtime-augmented code knowledge graph for Python codebases."
+requires-python = ">=3.12"
+dependencies = [
+    "tree-sitter>=0.23",
+    "tree-sitter-python>=0.23",
+    "neo4j>=5.26",
+    "neo4j-rust-ext",
+    "coverage>=7.6",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "typer>=0.15",
+]
+
+[project.scripts]
+livegraph = "livegraph.cli:app"
+
+[project.optional-dependencies]
+dev = ["pytest>=8.3", "mypy>=1.13", "ruff>=0.8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["livegraph*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: requires a running Neo4j (deselect with -m 'not integration')"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
