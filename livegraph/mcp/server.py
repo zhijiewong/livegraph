@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 10 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 11 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -29,7 +29,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 
 def build_server() -> FastMCP:
-    """Construct a FastMCP server with all 10 tools registered."""
+    """Construct a FastMCP server with all 11 tools registered."""
     mcp = FastMCP("livegraph")
 
     @mcp.tool()

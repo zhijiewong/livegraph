@@ -484,7 +484,9 @@ _CHANGE_IMPACT_QUERY_A = (
 # Query C — tests for any (changed ∪ impacted) symbol
 _CHANGE_IMPACT_QUERY_C = (
     "UNWIND $all_affected_qns AS qn "
-    "MATCH (s {qualified_name: qn}) "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+    "WHERE s.qualified_name = qn "
     "MATCH (t:Test)-[c:COVERS]->(s) "
     "RETURN DISTINCT t.qualified_name AS qualified_name, t.name AS name, "
     "       head([l IN labels(t) WHERE l IN ['Function','Method','Class'] "
