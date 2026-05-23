@@ -19,6 +19,18 @@ class GraphBackend(Protocol):
     def execute(self, cypher: str, **params: Any) -> list[dict[str, Any]]:
         """Run a Cypher query and return rows as plain dicts."""
 
+    def execute_read(
+        self, cypher: str, timeout_seconds: int = 30,
+        **params: Any,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Run a Cypher query in a READ transaction.
+
+        Returns ``(records, summary)``. ``summary`` is a dict with
+        ``available_after_ms``, ``consumed_after_ms``, and ``query_type``.
+        Engine-enforced read mode: any write clause that bypassed lexical
+        scanning is rejected here.
+        """
+
     def close(self) -> None:
         """Release all resources."""
 
@@ -47,6 +59,30 @@ class Neo4jBackend:
         )
         return [record.data() for record in records]
 
+    def execute_read(
+        self, cypher: str, timeout_seconds: int = 30,
+        **params: Any,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        from datetime import timedelta
+
+        def _work(tx: Any) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+            result = tx.run(cypher, **params)
+            records = [record.data() for record in result]
+            consumed = result.consume()
+            summary = {
+                "available_after_ms": consumed.result_available_after or 0,
+                "consumed_after_ms": consumed.result_consumed_after or 0,
+                "query_type": "read",
+            }
+            return records, summary
+
+        with self._driver.session(
+            database=self._database, default_access_mode="READ",
+        ) as session:
+            return session.execute_read(
+                _work, timeout=timedelta(seconds=timeout_seconds),
+            )
+
     def close(self) -> None:
         self._driver.close()
 
@@ -67,6 +103,17 @@ class FakeBackend:
     def execute(self, cypher: str, **params: Any) -> list[dict[str, Any]]:
         self.calls.append((cypher, params))
         return list(self._rows)
+
+    def execute_read(
+        self, cypher: str, timeout_seconds: int = 30,
+        **params: Any,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        self.calls.append((cypher, params))
+        return list(self._rows), {
+            "available_after_ms": 0,
+            "consumed_after_ms": 0,
+            "query_type": "read",
+        }
 
     def close(self) -> None:
         return None
