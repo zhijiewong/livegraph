@@ -652,3 +652,165 @@ def _test_from_row(row: dict[str, Any]) -> dict[str, Any]:
         "covers_symbols": sorted(row.get("covers_symbols") or []),
         "avg_coverage_pct": float(row.get("avg_coverage_pct") or 0.0),
     }
+
+
+# -- describe_schema --------------------------------------------------
+
+_NEO4J_VERSION_HINT = "5.x"
+
+_NODE_LABELS_DESCRIPTION: dict[str, dict[str, Any]] = {
+    "Project":  {"key": "name",
+                 "properties": ["name", "root_path"]},
+    "File":     {"key": "path",
+                 "properties": ["path", "name", "language",
+                                "parse_error", "content_hash"]},
+    "Class":    {"key": "qualified_name",
+                 "properties": ["qualified_name", "name", "file",
+                                "start_line", "end_line",
+                                "decorators", "source"]},
+    "Function": {"key": "qualified_name",
+                 "properties": ["qualified_name", "name", "file",
+                                "start_line", "end_line",
+                                "decorators", "source",
+                                "runtime_observed", "coverage_pct",
+                                "runtime_stale",
+                                "test_outcome", "test_duration"]},
+    "Method":   {"key": "qualified_name",
+                 "properties": ["qualified_name", "name", "file",
+                                "start_line", "end_line",
+                                "decorators", "source",
+                                "runtime_observed", "coverage_pct",
+                                "runtime_stale"]},
+    "Test":     {"note": ("An additional label on Function nodes "
+                          "(test functions covered by livegraph trace). "
+                          "Test nodes also satisfy :Function.")},
+    "Module":   {"key": "name",
+                 "properties": ["name", "kind"]},
+}
+
+_EDGE_TYPES_DESCRIPTION: dict[str, dict[str, Any]] = {
+    "CONTAINS":   {"from": "Project|File", "to": "File",
+                   "properties": []},
+    "DEFINES":    {"from": "File", "to": "Class|Function",
+                   "properties": []},
+    "HAS_METHOD": {"from": "Class", "to": "Method", "properties": []},
+    "IMPORTS":    {"from": "File", "to": "File|Module",
+                   "properties": ["raw", "line"]},
+    "CALLS":      {"from": "Function|Method", "to": "Function|Method",
+                   "properties": ["static", "runtime",
+                                  "observed_count", "call_site_lines"],
+                   "note": ("Provenance flags: c.static=true means AST "
+                            "predicted the call; c.runtime=true means it "
+                            "was observed executing. "
+                            "(static=false, runtime=true) is the "
+                            "dynamic-dispatch differentiator.")},
+    "COVERS":     {"from": "Test", "to": "Function|Method",
+                   "properties": ["lines_covered", "lines_total",
+                                  "coverage_pct"]},
+}
+
+_SAFETY_DESCRIPTION: dict[str, Any] = {
+    "read_only": True,
+    "forbidden_keywords": ["CREATE", "MERGE", "DELETE", "DETACH DELETE",
+                           "SET", "REMOVE", "DROP", "LOAD CSV",
+                           "USING PERIODIC COMMIT", "CALL"],
+    "row_limit_default": 1000,
+    "timeout_seconds_default": 30,
+    "project_auto_injected": True,
+    "convention": ("Every query should scope through "
+                   "(:Project {name: $project})-[:CONTAINS]->(:File)->... ; "
+                   "the $project parameter is injected automatically."),
+}
+
+_EXAMPLE_QUERIES: list[dict[str, Any]] = [
+    {
+        "intent": "Find a symbol by name",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE toLower(s.name) CONTAINS toLower($q) "
+            "RETURN s.qualified_name, s.name, labels(s), "
+            "       s.file, s.start_line "
+            "LIMIT 20"
+        ),
+        "params_hint": {"q": "<search term>"},
+    },
+    {
+        "intent": "Find who calls a symbol",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(callee) "
+            "WHERE callee.qualified_name = $qn "
+            "MATCH (caller)-[c:CALLS]->(callee) "
+            "RETURN caller.qualified_name, c.static, c.runtime, "
+            "       c.observed_count"
+        ),
+        "params_hint": {"qn": "<qualified_name>"},
+    },
+    {
+        "intent": ("Dynamic-dispatch calls — runtime caught what static "
+                   "missed"),
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(caller)"
+            "-[c:CALLS]->(callee) "
+            "WHERE c.runtime = true "
+            "  AND coalesce(c.static, false) = false "
+            "RETURN caller.qualified_name, callee.qualified_name, "
+            "       c.observed_count "
+            "LIMIT 50"
+        ),
+        "params_hint": {},
+    },
+    {
+        "intent": "Tests that cover a symbol",
+        "query": (
+            "MATCH (s {qualified_name: $qn}) "
+            "MATCH (t:Test)-[c:COVERS]->(s) "
+            "RETURN t.qualified_name, c.coverage_pct, "
+            "       c.lines_covered, c.lines_total "
+            "ORDER BY c.coverage_pct DESC"
+        ),
+        "params_hint": {"qn": "<qualified_name>"},
+    },
+    {
+        "intent": "Untested functions/methods",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+            "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE (s:Function OR s:Method) AND NOT s:Test "
+            "  AND coalesce(s.runtime_observed, false) = false "
+            "RETURN s.qualified_name, s.file "
+            "LIMIT 100"
+        ),
+        "params_hint": {},
+    },
+    {
+        "intent": "Files that import a given file",
+        "query": (
+            "MATCH (:Project {name: $project})-[:CONTAINS]->(src:File)"
+            "-[r:IMPORTS]->(dst:File {path: $file}) "
+            "RETURN src.path, r.raw, r.line "
+            "ORDER BY src.path"
+        ),
+        "params_hint": {"file": "<relative path>"},
+    },
+]
+
+
+def describe_schema(backend: GraphBackend,
+                    project: str) -> dict[str, Any]:
+    """Return the static schema description for the configured project.
+
+    No backend reads — every field is statically derived from the
+    livegraph schema. The agent caches the response per session.
+    """
+    _ = backend  # signature consistency with the rest of the tools module
+    return {
+        "project": project,
+        "neo4j_version": _NEO4J_VERSION_HINT,
+        "node_labels": _NODE_LABELS_DESCRIPTION,
+        "edge_types": _EDGE_TYPES_DESCRIPTION,
+        "safety": _SAFETY_DESCRIPTION,
+        "example_queries": _EXAMPLE_QUERIES,
+    }
