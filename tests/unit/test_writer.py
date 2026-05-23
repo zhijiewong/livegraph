@@ -92,3 +92,87 @@ def test_write_files_root_path_is_optional():
     )
     _query, params = backend.calls[0]
     assert params.get("root_path") is None
+
+
+def test_delete_symbols_issues_detach_delete_with_qns():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).delete_symbols(
+        ["a.py::f", "a.py::g"])
+    query, params = backend.calls[0]
+    assert "DETACH DELETE" in query and "UNWIND" in query
+    assert params["qns"] == ["a.py::f", "a.py::g"]
+
+
+def test_delete_symbols_no_op_on_empty():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).delete_symbols([])
+    assert backend.calls == []
+
+
+def test_delete_outgoing_calls_for_file_issues_match_delete():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).delete_outgoing_calls_for_file("a.py")
+    query, params = backend.calls[0]
+    assert "[c:CALLS]" in query and "DELETE c" in query
+    assert params["file"] == "a.py"
+
+
+def test_delete_imports_from_file_issues_match_delete():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).delete_imports_from_file("a.py")
+    query, params = backend.calls[0]
+    assert "[r:IMPORTS]" in query and "DELETE r" in query
+    assert params["file"] == "a.py"
+
+
+def test_flag_runtime_stale_for_file():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).flag_runtime_stale_for_file(
+        project="proj", file="a.py")
+    query, params = backend.calls[0]
+    assert "SET s.runtime_stale = true" in query
+    assert ":Project {name: $project}" in query
+    assert params["project"] == "proj"
+    assert params["file"] == "a.py"
+
+
+def test_clear_runtime_stale_for_symbols():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).clear_runtime_stale_for_symbols(
+        ["a.py::f", "a.py::g"])
+    query, params = backend.calls[0]
+    assert "SET s.runtime_stale = false" in query
+    assert params["qns"] == ["a.py::f", "a.py::g"]
+
+
+def test_clear_runtime_stale_no_op_on_empty():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).clear_runtime_stale_for_symbols([])
+    assert backend.calls == []
+
+
+def test_delete_file_completely():
+    from livegraph.graph.backend import FakeBackend
+    from livegraph.graph.writer import GraphWriter
+    backend = FakeBackend()
+    GraphWriter(backend, batch_size=100).delete_file(
+        project="proj", file="a.py")
+    query, params = backend.calls[0]
+    assert "DETACH DELETE" in query
+    assert "{path: $file}" in query
+    assert params["project"] == "proj"
+    assert params["file"] == "a.py"

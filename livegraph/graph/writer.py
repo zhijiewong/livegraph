@@ -165,6 +165,71 @@ class GraphWriter:
                 rows=rows,
             )
 
+    def delete_symbols(self, qns: Iterable[str]) -> None:
+        """DETACH DELETE every Function/Method/Class with these qualified_names."""
+        qns_list = list(qns)
+        if not qns_list:
+            return
+        self._backend.execute(
+            "UNWIND $qns AS qn "
+            "MATCH (s {qualified_name: qn}) "
+            "WHERE s:Function OR s:Method OR s:Class "
+            "DETACH DELETE s",
+            qns=qns_list,
+        )
+
+    def delete_outgoing_calls_for_file(self, file: str) -> None:
+        """Delete every CALLS edge originating in a symbol owned by this file."""
+        self._backend.execute(
+            "MATCH (s {file: $file})-[c:CALLS]->() "
+            "WHERE s:Function OR s:Method "
+            "DELETE c",
+            file=file,
+        )
+
+    def delete_imports_from_file(self, file: str) -> None:
+        """Delete every IMPORTS edge originating from this file."""
+        self._backend.execute(
+            "MATCH (src:File {path: $file})-[r:IMPORTS]->() "
+            "DELETE r",
+            file=file,
+        )
+
+    def flag_runtime_stale_for_file(self, project: str, file: str) -> None:
+        """Set runtime_stale=true on every Function/Method in this file."""
+        self._backend.execute(
+            "MATCH (:Project {name: $project})-[:CONTAINS]->"
+            "(:File {path: $file})"
+            "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE s:Function OR s:Method "
+            "SET s.runtime_stale = true",
+            project=project, file=file,
+        )
+
+    def clear_runtime_stale_for_symbols(self, qns: Iterable[str]) -> None:
+        """Set runtime_stale=false on every Function/Method in these qns."""
+        qns_list = list(qns)
+        if not qns_list:
+            return
+        self._backend.execute(
+            "UNWIND $qns AS qn "
+            "MATCH (s {qualified_name: qn}) "
+            "WHERE s:Function OR s:Method "
+            "SET s.runtime_stale = false",
+            qns=qns_list,
+        )
+
+    def delete_file(self, project: str, file: str) -> None:
+        """DETACH DELETE the File and every symbol it owns (transitive)."""
+        self._backend.execute(
+            "MATCH (:Project {name: $project})-[:CONTAINS]->"
+            "(f:File {path: $file}) "
+            "OPTIONAL MATCH (f)-[:DEFINES|HAS_METHOD*1..2]->(s) "
+            "WHERE s:Function OR s:Method OR s:Class "
+            "DETACH DELETE s, f",
+            project=project, file=file,
+        )
+
     # -- helpers ----------------------------------------------------------
 
     @staticmethod
