@@ -78,3 +78,9 @@ def test_embed_batch_size_from_env(monkeypatch):
     monkeypatch.setenv("LIVEGRAPH_EMBED_BATCH_SIZE", "64")
     settings = Settings(_env_file=None)
     assert settings.livegraph_embed_batch_size == 64
+
+
+def test_settings_default_watch_debounce_ms():
+    from livegraph.config import Settings
+    s = Settings()
+    assert s.livegraph_watch_debounce_ms == 300

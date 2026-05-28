@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     livegraph_query_timeout_seconds: int = 30
     livegraph_embed_model: str = "all-MiniLM-L6-v2"
     livegraph_embed_batch_size: int = 32
+    livegraph_watch_debounce_ms: int = 300
 
 
 def load_settings() -> Settings:
