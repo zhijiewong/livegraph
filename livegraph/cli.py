@@ -394,7 +394,10 @@ def watch(
             try:
                 provider = _make_embedding_provider(settings)
             except EmbeddingExtraMissing as exc:
-                typer.echo(f"--embed requires the [semantic] extra: {exc}")
+                typer.echo(
+                    f"--embed requires the [semantic] extra: {exc}",
+                    err=True,
+                )
                 raise typer.Exit(code=1) from exc
 
         window = debounce_ms or settings.livegraph_watch_debounce_ms

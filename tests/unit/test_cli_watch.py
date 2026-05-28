@@ -46,4 +46,5 @@ def test_watch_embed_without_extra_exits_1(monkeypatch, tmp_path):
         app, ["watch", "--project", "p", "--embed", str(tmp_path)],
     )
     assert result.exit_code == 1
-    assert "semantic" in result.stdout.lower() or "extra" in result.stdout.lower()
+    out = (result.output or "") + (getattr(result, "stderr", "") or "")
+    assert "semantic" in out.lower() or "extra" in out.lower()
