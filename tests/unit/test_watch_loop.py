@@ -117,6 +117,37 @@ def test_loop_backs_off_on_backend_error():
     assert sleeps and sleeps[0] >= 1.0
 
 
+def test_loop_backs_off_on_neo4j_service_unavailable():
+    """Driver-level ServiceUnavailable must trigger backoff, not the
+    silent generic-Exception path. Regression test for the case where
+    Neo4j goes down mid-watch."""
+    from neo4j.exceptions import ServiceUnavailable
+
+    batch = ChangeBatch(modified=frozenset({Path("a.py")}), deleted=frozenset())
+    calls = {"n": 0}
+
+    def flaky_update(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ServiceUnavailable("connection refused")
+        return _ok_summary()
+
+    sleeps = []
+    deps = LoopDeps(
+        backend=MagicMock(),
+        project="proj",
+        root="/tmp/proj",
+        debouncer=FakeDebouncer([batch, batch]),
+        update_files=flaky_update,
+        embed_project=None,
+        provider=None,
+        sleep=lambda dt: sleeps.append(dt),
+        should_stop=stop_after(2),
+    )
+    run_loop(deps)
+    assert sleeps and sleeps[0] >= 1.0
+
+
 def test_loop_skips_empty_batches_without_calling_update():
     update_files = MagicMock(return_value=_ok_summary())
     deps = LoopDeps(

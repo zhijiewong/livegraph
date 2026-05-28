@@ -413,7 +413,7 @@ def watch(
         def _request_stop(_signum, _frame):
             stop_flag["stop"] = True
 
-        signal.signal(signal.SIGINT, _request_stop)
+        prev_sigint = signal.signal(signal.SIGINT, _request_stop)
 
         watcher.start()
         typer.echo(
@@ -435,6 +435,7 @@ def watch(
             run_loop(deps)
         finally:
             watcher.stop()
+            signal.signal(signal.SIGINT, prev_sigint)
             typer.echo("Watch stopped.")
     finally:
         backend.close()

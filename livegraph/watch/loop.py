@@ -20,6 +20,22 @@ _BACKOFF_START = 1.0
 _BACKOFF_CAP = 30.0
 
 
+def _backend_error_types() -> tuple[type[BaseException], ...]:
+    """Errors that should trigger backoff. Lazy-imports neo4j driver
+    exceptions so this module stays importable without neo4j installed
+    (e.g. for the unit tests in test_watch_loop.py)."""
+    types: list[type[BaseException]] = [ConnectionError]
+    try:
+        from neo4j.exceptions import Neo4jError, ServiceUnavailable
+        types.extend([ServiceUnavailable, Neo4jError])
+    except ImportError:  # pragma: no cover
+        pass
+    return tuple(types)
+
+
+_BACKEND_ERRORS = _backend_error_types()
+
+
 def _never_stop() -> bool:
     return False
 
@@ -58,7 +74,7 @@ def run_loop(deps: LoopDeps) -> None:
             summary = deps.update_files(
                 deps.root, deps.backend, deps.project, paths=paths,
             )
-        except ConnectionError as e:
+        except _BACKEND_ERRORS as e:
             log.error("backend error: %s; backing off %.1fs", e, backoff)
             deps.sleep(backoff)
             backoff = min(backoff * 2.0, _BACKOFF_CAP)
