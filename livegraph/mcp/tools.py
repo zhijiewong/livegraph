@@ -964,16 +964,20 @@ def _embedded_count(backend: GraphBackend, project: str) -> int:
     return int(rows[0].get("n") or 0)
 
 
-def semantic_search(
+def _semantic_seeds(
     backend: GraphBackend, project: str, provider: EmbeddingProvider,
-    query: str, limit: int = 10, kind: str = "any",
+    query: str, limit: int, kind: str, min_score: float = 0.0,
 ) -> dict[str, Any]:
-    """Find code symbols by vector similarity to ``query``."""
+    """Run the kind-check + index-check + vector query.
+
+    Returns either {"ok": True, "seeds": [row, ...]} or
+    {"ok": False, "warning": str}. Used by both `semantic_search` (which
+    builds snippet-bearing results from the seeds) and
+    `semantic_neighborhood` (which expands each seed via the callgraph).
+    """
     if kind not in ("any", "function", "method"):
         return {
-            "results": [],
-            "model": provider.name,
-            "embedded_count": 0,
+            "ok": False,
             "warning": (
                 f"invalid kind {kind!r}; "
                 f"must be one of 'any', 'function', 'method'"
@@ -981,22 +985,38 @@ def semantic_search(
         }
     if not _index_exists(backend):
         return {
-            "results": [],
-            "model": provider.name,
-            "embedded_count": 0,
+            "ok": False,
             "warning": "no embeddings yet; run `livegraph embed` first",
         }
-
     query_vector = provider.encode([query])[0]
     k_padded = limit + 50
-
     rows = backend.execute(
         _VECTOR_QUERY_CYPHER,
         index_name=INDEX_NAME, project=project,
         k_padded=k_padded, query_vector=query_vector,
         kind=kind, limit=limit,
     )
+    seeds = [r for r in rows if r.get("qualified_name") is not None]
+    if min_score > 0.0:
+        seeds = [s for s in seeds if float(s.get("score") or 0.0) >= min_score]
+    return {"ok": True, "seeds": seeds}
 
+
+def semantic_search(
+    backend: GraphBackend, project: str, provider: EmbeddingProvider,
+    query: str, limit: int = 10, kind: str = "any",
+) -> dict[str, Any]:
+    """Find code symbols by vector similarity to ``query``."""
+    seed_result = _semantic_seeds(
+        backend, project, provider, query, limit, kind,
+    )
+    if not seed_result["ok"]:
+        return {
+            "results": [],
+            "model": provider.name,
+            "embedded_count": 0,
+            "warning": seed_result["warning"],
+        }
     results = [
         {
             "qualified_name": r.get("qualified_name"),
@@ -1008,10 +1028,8 @@ def semantic_search(
             "score": float(r.get("score") or 0.0),
             "snippet": _snippet(r.get("source") or ""),
         }
-        for r in rows
-        if r.get("qualified_name") is not None
+        for r in seed_result["seeds"]
     ]
-
     return {
         "results": results,
         "model": provider.name,
