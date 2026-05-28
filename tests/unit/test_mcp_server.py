@@ -11,7 +11,7 @@ def test_bootstrap_sets_state_and_returns_server():
     assert srv_mod._PROJECT == "sample"
 
 
-def test_build_server_registers_thirteen_tools_including_describe_and_run():
+def test_build_server_registers_fourteen_tools_including_semantic_search():
     backend = FakeBackend()
     server = bootstrap(backend, project="sample")
     tool_names = sorted(_registered_tool_names(server))
@@ -23,6 +23,7 @@ def test_build_server_registers_thirteen_tools_including_describe_and_run():
         "imports", "graph_status",
         "change_impact",
         "describe_schema", "run_cypher",
+        "semantic_search",
     ])
     assert tool_names == expected
 

@@ -54,3 +54,27 @@ def test_query_timeout_from_env(monkeypatch):
     monkeypatch.setenv("LIVEGRAPH_QUERY_TIMEOUT_SECONDS", "5")
     settings = Settings(_env_file=None)
     assert settings.livegraph_query_timeout_seconds == 5
+
+
+def test_embed_model_default(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_EMBED_MODEL", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_embed_model == "all-MiniLM-L6-v2"
+
+
+def test_embed_model_from_env(monkeypatch):
+    monkeypatch.setenv("LIVEGRAPH_EMBED_MODEL", "microsoft/unixcoder-base")
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_embed_model == "microsoft/unixcoder-base"
+
+
+def test_embed_batch_size_default(monkeypatch):
+    monkeypatch.delenv("LIVEGRAPH_EMBED_BATCH_SIZE", raising=False)
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_embed_batch_size == 32
+
+
+def test_embed_batch_size_from_env(monkeypatch):
+    monkeypatch.setenv("LIVEGRAPH_EMBED_BATCH_SIZE", "64")
+    settings = Settings(_env_file=None)
+    assert settings.livegraph_embed_batch_size == 64

@@ -16,6 +16,8 @@ from livegraph.mcp.cypher_guard import (
     auto_limit, forbidden_keyword, inject_project,
 )
 from livegraph.mcp.diff_parser import parse_diff
+from livegraph.semantic.embed import INDEX_NAME
+from livegraph.semantic.provider import EmbeddingProvider
 
 # Labels we treat as a primary "kind" for SymbolRef.
 _KIND_LABELS = ("Function", "Method", "Class")
@@ -897,4 +899,122 @@ def describe_schema(backend: GraphBackend,
         "edge_types": _EDGE_TYPES_DESCRIPTION,
         "safety": _SAFETY_DESCRIPTION,
         "example_queries": _EXAMPLE_QUERIES,
+    }
+
+
+# -- semantic_search --------------------------------------------------
+
+_INDEX_EXISTS_CYPHER = (
+    "SHOW INDEXES YIELD name, type "
+    "WHERE name = $name AND type = 'VECTOR' "
+    "RETURN name"
+)
+
+
+_EMBEDDED_COUNT_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(s:Symbol) "
+    "RETURN count(DISTINCT s) AS n"
+)
+
+
+_VECTOR_QUERY_CYPHER = (
+    "CALL db.index.vector.queryNodes($index_name, $k_padded, $query_vector) "
+    "YIELD node, score "
+    "WITH node, score "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(node) "
+    "WHERE ($kind = 'any' AND (node:Function OR node:Method)) "
+    "   OR ($kind = 'function' AND node:Function AND NOT node:Test) "
+    "   OR ($kind = 'method' AND node:Method) "
+    "RETURN node.qualified_name AS qualified_name, "
+    "       node.name AS name, "
+    "       head([l IN labels(node) "
+    "             WHERE l IN ['Function','Method'] | toLower(l)]) AS kind, "
+    "       node.file AS file, "
+    "       node.start_line AS start_line, "
+    "       node.end_line AS end_line, "
+    "       coalesce(node.source, '') AS source, "
+    "       score "
+    "ORDER BY score DESC "
+    "LIMIT $limit"
+)
+
+
+def _snippet(source: str, lines: int = 3) -> str:
+    """First ``lines`` non-blank lines of ``source``, joined with newlines."""
+    out: list[str] = []
+    for raw_line in source.splitlines():
+        if raw_line.strip():
+            out.append(raw_line)
+            if len(out) >= lines:
+                break
+    return "\n".join(out)
+
+
+def _index_exists(backend: GraphBackend) -> bool:
+    rows = backend.execute(_INDEX_EXISTS_CYPHER, name=INDEX_NAME)
+    return bool(rows)
+
+
+def _embedded_count(backend: GraphBackend, project: str) -> int:
+    rows = backend.execute(_EMBEDDED_COUNT_CYPHER, project=project)
+    if not rows:
+        return 0
+    return int(rows[0].get("n") or 0)
+
+
+def semantic_search(
+    backend: GraphBackend, project: str, provider: EmbeddingProvider,
+    query: str, limit: int = 10, kind: str = "any",
+) -> dict[str, Any]:
+    """Find code symbols by vector similarity to ``query``."""
+    if kind not in ("any", "function", "method"):
+        return {
+            "results": [],
+            "model": provider.name,
+            "embedded_count": 0,
+            "warning": (
+                f"invalid kind {kind!r}; "
+                f"must be one of 'any', 'function', 'method'"
+            ),
+        }
+    if not _index_exists(backend):
+        return {
+            "results": [],
+            "model": provider.name,
+            "embedded_count": 0,
+            "warning": "no embeddings yet; run `livegraph embed` first",
+        }
+
+    query_vector = provider.encode([query])[0]
+    k_padded = limit + 50
+
+    rows = backend.execute(
+        _VECTOR_QUERY_CYPHER,
+        index_name=INDEX_NAME, project=project,
+        k_padded=k_padded, query_vector=query_vector,
+        kind=kind, limit=limit,
+    )
+
+    results = [
+        {
+            "qualified_name": r.get("qualified_name"),
+            "name": r.get("name"),
+            "kind": r.get("kind"),
+            "file": r.get("file"),
+            "start_line": r.get("start_line"),
+            "end_line": r.get("end_line"),
+            "score": float(r.get("score") or 0.0),
+            "snippet": _snippet(r.get("source") or ""),
+        }
+        for r in rows
+        if r.get("qualified_name") is not None
+    ]
+
+    return {
+        "results": results,
+        "model": provider.name,
+        "embedded_count": _embedded_count(backend, project),
+        "warning": None,
     }

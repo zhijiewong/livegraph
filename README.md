@@ -121,3 +121,44 @@ answer — all without livegraph needing an LLM dependency of its own.
 
 The agent's LLM (Claude Sonnet, Opus, GPT-5, whichever) writes the Cypher.
 livegraph just provides the safe execution endpoint.
+
+## Semantic search (`livegraph embed` + `semantic_search`)
+
+For questions where the *concept* is clear but the right *names* aren't,
+livegraph can compute vector embeddings of every Function and Method
+and serve them via a 14th MCP tool.
+
+This stack is **opt-in**:
+
+```bash
+pip install 'livegraph[semantic]'    # adds sentence-transformers + torch (~2 GB)
+```
+
+After ingesting a project, compute its embeddings:
+
+```bash
+LIVEGRAPH_PROJECT=myproject livegraph embed
+```
+
+The default model is `all-MiniLM-L6-v2` (384 dimensions, ~80 MB). Override
+via `LIVEGRAPH_EMBED_MODEL` (any HuggingFace sentence-transformers model id).
+
+Re-running `livegraph embed` is idempotent — only symbols whose source has
+changed since the last run get re-embedded (tracked via
+`embedding_source_hash`, mirroring Phase 5's content-hash pattern). To swap
+to a model with different dimensions, pass `--rebuild`.
+
+The MCP server exposes `semantic_search`:
+
+```
+semantic_search(query: str, limit: int = 10, kind: str = "any")
+```
+
+Example agent prompt: *"Where do we handle JWT verification?"*. The agent
+calls `semantic_search("JWT verification token validation")` and the top
+results are ranked by cosine similarity to the query — even if no symbol
+in the project literally contains those words.
+
+If the `[semantic]` extra is not installed, the tool returns an empty
+result list with a warning containing the install hint, and the rest of
+livegraph keeps working.

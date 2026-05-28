@@ -12,6 +12,10 @@ from livegraph.incremental import detect_changes, reingest_files
 from livegraph.ingest import ingest_project
 from livegraph.mcp.server import run_stdio
 from livegraph.runtime.runner import RuntimeUnavailable, run_pytest
+from livegraph.semantic.embed import embed_project
+from livegraph.semantic.provider import (
+    EmbeddingExtraMissing, EmbeddingDimensionMismatch, LocalSTProvider,
+)
 
 app = typer.Typer(help="A runtime-augmented code knowledge graph for Python.")
 
@@ -242,6 +246,18 @@ def update(
         backend.close()
 
 
+def _make_embedding_provider(settings):
+    """Build a LocalSTProvider from configured Settings.
+
+    Isolated in its own function so tests can monkeypatch it without
+    installing the [semantic] extra.
+    """
+    return LocalSTProvider(
+        model_name=settings.livegraph_embed_model,
+        batch_size=settings.livegraph_embed_batch_size,
+    )
+
+
 def _resolve_root_path(backend, project: str) -> str | None:
     """Look up Project.root_path on the graph, or None if absent."""
     rows = backend.execute(
@@ -251,6 +267,65 @@ def _resolve_root_path(backend, project: str) -> str | None:
     if not rows:
         return None
     return rows[0].get("root_path")
+
+
+@app.command()
+def embed(
+    project: str = typer.Option(
+        None, "--project",
+        help="Ingested project to embed (overrides LIVEGRAPH_PROJECT env)",
+    ),
+    rebuild: bool = typer.Option(
+        False, "--rebuild",
+        help="Drop the vector index, clear all embeddings, then re-embed",
+    ),
+) -> None:
+    """Compute embeddings for every Function/Method in the project."""
+    settings = load_settings()
+    resolved_project = project or settings.livegraph_project
+    if not resolved_project:
+        typer.echo(
+            "LIVEGRAPH_PROJECT is not set. Pass --project NAME or set the "
+            "LIVEGRAPH_PROJECT environment variable.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    backend = _make_backend()
+    try:
+        backend.verify()
+    except ConnectionError as exc:
+        typer.echo(f"Neo4j unreachable: {exc}", err=True)
+        backend.close()
+        raise typer.Exit(code=1) from exc
+
+    try:
+        try:
+            provider = _make_embedding_provider(settings)
+        except EmbeddingExtraMissing as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=1) from exc
+
+        typer.echo(
+            f"Project: {resolved_project}\n"
+            f"Loading model: {provider.name} "
+            f"({provider.dimensions} dims)... done."
+        )
+        try:
+            summary = embed_project(
+                backend, resolved_project, provider, rebuild=rebuild,
+            )
+        except EmbeddingDimensionMismatch as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(code=2) from exc
+
+        typer.echo(
+            f"Embed complete: {summary.embedded} embedded, "
+            f"{summary.unchanged} unchanged, "
+            f"{summary.skipped} skipped."
+        )
+    finally:
+        backend.close()
 
 
 if __name__ == "__main__":  # pragma: no cover

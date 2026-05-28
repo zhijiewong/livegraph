@@ -20,6 +20,7 @@ livegraph = "livegraph.cli:app"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "mypy>=1.13", "ruff>=0.8"]
+semantic = ["sentence-transformers>=3.0"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -31,7 +32,10 @@ include = ["livegraph*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_functions = ["test_*"]
-markers = ["integration: requires a running Neo4j (deselect with -m 'not integration')"]
+markers = [
+    "integration: requires a running Neo4j (deselect with -m 'not integration')",
+    "semantic: requires the [semantic] extra installed (deselect with -m 'not semantic')",
+]
 
 [tool.mypy]
 python_version = "3.12"

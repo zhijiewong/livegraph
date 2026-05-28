@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 13 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 14 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -13,10 +13,47 @@ from mcp.server.fastmcp import FastMCP
 
 from livegraph.graph.backend import GraphBackend
 from livegraph.mcp import tools
+from livegraph.semantic.provider import (
+    EmbeddingExtraMissing, EmbeddingProvider,
+)
 
 # Set by ``bootstrap()`` before any tool is invoked.
 _BACKEND: GraphBackend | None = None
 _PROJECT: str | None = None
+_PROVIDER: EmbeddingProvider | None = None
+
+
+def _get_or_load_provider() -> EmbeddingProvider | None:
+    """Return the lazily-loaded LocalSTProvider, or None on load failure.
+
+    Catches both `EmbeddingExtraMissing` (extra not installed) and any
+    other exception during model construction (network failure, bad model
+    name, disk full, etc.). Logs the failure to stderr so operators can
+    debug; the MCP tool surfaces a graceful warning either way.
+    """
+    global _PROVIDER
+    if _PROVIDER is not None:
+        return _PROVIDER
+    try:
+        from livegraph.config import load_settings
+        from livegraph.semantic.provider import LocalSTProvider
+
+        settings = load_settings()
+        _PROVIDER = LocalSTProvider(
+            model_name=settings.livegraph_embed_model,
+            batch_size=settings.livegraph_embed_batch_size,
+        )
+    except EmbeddingExtraMissing:
+        return None
+    except Exception as exc:
+        import sys
+        print(
+            f"livegraph: failed to load embedding model: "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return None
+    return _PROVIDER
 
 
 def _require_state() -> tuple[GraphBackend, str]:
@@ -30,7 +67,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 def build_server(default_row_limit: int = 1000,
                  default_timeout_seconds: int = 30) -> FastMCP:
-    """Construct a FastMCP server with all 13 tools registered.
+    """Construct a FastMCP server with all 14 tools registered.
 
     Tool wrappers reference the module-level state set by ``bootstrap``.
     ``default_row_limit`` and ``default_timeout_seconds`` are the values
@@ -175,6 +212,37 @@ def build_server(default_row_limit: int = 1000,
             row_limit=row_limit, timeout_seconds=timeout_seconds,
         )
 
+    @mcp.tool()
+    def semantic_search(
+        query: str, limit: int = 10, kind: str = "any",
+    ) -> dict[str, Any]:
+        """Find code symbols by vector similarity to a natural-language query.
+
+        - ``query``: natural-language description of the code you want to find.
+        - ``limit``: top-K results (default 10).
+        - ``kind``: ``"any"`` (default), ``"function"``, or ``"method"``.
+
+        Returns ``{results, model, embedded_count, warning}``. If the
+        ``[semantic]`` extra is not installed, returns an empty result list
+        and a warning with the install hint.
+        """
+        backend, project = _require_state()
+        provider = _get_or_load_provider()
+        if provider is None:
+            return {
+                "results": [],
+                "model": "unknown",
+                "embedded_count": 0,
+                "warning": (
+                    "semantic search not enabled — install with "
+                    "`pip install livegraph[semantic]`"
+                ),
+            }
+        return tools.semantic_search(
+            backend, project, provider, query=query,
+            limit=limit, kind=kind,
+        )
+
     return mcp
 
 
@@ -204,9 +272,10 @@ def bootstrap(
     default_timeout_seconds: int = 30,
 ) -> FastMCP:
     """Initialize global state and return a configured FastMCP server."""
-    global _BACKEND, _PROJECT
+    global _BACKEND, _PROJECT, _PROVIDER
     _BACKEND = backend
     _PROJECT = project
+    _PROVIDER = None
     _warn_if_project_missing(backend, project)
     return build_server(
         default_row_limit=default_row_limit,
