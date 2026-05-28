@@ -39,6 +39,13 @@ def test_addition_query_returns_calc_add_with_callers_and_tests(embedded_sample)
     # tests (the sample test suite). Both should be present.
     assert add_result["callers"], "expected at least one caller for .add"
     assert add_result["tests"], "expected at least one test for .add"
+    # Regression: provenance must be derived from c.static/c.runtime, not
+    # a (non-existent) r.provenance property. Every caller should carry a
+    # real provenance label, not the 'unknown' fallback.
+    provs = {c.get("provenance") for c in add_result["callers"]}
+    assert provs & {"static", "runtime", "both"}, (
+        f"callers should carry real provenance labels, got {provs}"
+    )
 
 
 def test_include_callers_only_omits_other_fields(embedded_sample):
