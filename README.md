@@ -186,3 +186,30 @@ The loop logs each update; Ctrl-C stops it cleanly. Backend errors trigger
 exponential backoff (1s → 30s cap) so the watcher stays alive if Neo4j
 blips. Runtime CALLS edges from prior pytest runs are preserved on
 unchanged files.
+
+## Semantic neighborhood (`semantic_neighborhood`)
+
+For when an agent wants more than "what matches my query" — it wants
+"where do I look and what do I run." The 15th MCP tool:
+
+```
+semantic_neighborhood(
+    query: str,
+    limit: int = 10,             # number of semantic seeds
+    per_seed_limit: int = 10,    # cap per expansion list
+    kind: str = "any",           # "any" | "function" | "method"
+    include: list[str] | None = None,  # subset of {"callers","callees","tests"}
+    min_score: float = 0.0,
+)
+```
+
+For each top-K semantic match, returns the direct callers (with
+`static`/`runtime`/`both` provenance), callees (same), and tests that
+cover the symbol (Phase 2 coverage edges). One vector query plus up to
+three batched expansion queries — same latency budget as
+`semantic_search` plus 3 Cypher round-trips.
+
+Example agent prompt: *"Where does this codebase do JWT verification,
+and what tests cover it?"* The agent calls `semantic_neighborhood`
+once and gets matching functions, their call sites, and the tests it
+should run to validate a change.
