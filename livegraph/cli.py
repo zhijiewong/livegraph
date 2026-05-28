@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 import logging
+import queue
+import signal
+from pathlib import Path
 
 import typer
 
 from livegraph.augment import augment_from_observations
 from livegraph.config import load_settings
 from livegraph.graph.backend import GraphBackend, Neo4jBackend
-from livegraph.incremental import detect_changes, reingest_files
+from livegraph.incremental import detect_changes, reingest_files, update_files
 from livegraph.ingest import ingest_project
 from livegraph.mcp.server import run_stdio
 from livegraph.runtime.runner import RuntimeUnavailable, run_pytest
@@ -16,6 +19,10 @@ from livegraph.semantic.embed import embed_project
 from livegraph.semantic.provider import (
     EmbeddingExtraMissing, EmbeddingDimensionMismatch, LocalSTProvider,
 )
+from livegraph.watch.debouncer import Debouncer
+from livegraph.watch.events import ChangeEvent
+from livegraph.watch.loop import LoopDeps, run_loop
+from livegraph.watch.watcher import Watcher
 
 app = typer.Typer(help="A runtime-augmented code knowledge graph for Python.")
 
@@ -324,6 +331,112 @@ def embed(
             f"{summary.unchanged} unchanged, "
             f"{summary.skipped} skipped."
         )
+    finally:
+        backend.close()
+
+
+@app.command()
+def watch(
+    path: str = typer.Argument(
+        None,
+        help="Project root (defaults to the Project's stored root_path)",
+    ),
+    project: str = typer.Option(
+        None, "--project",
+        help="Ingested project to watch (overrides LIVEGRAPH_PROJECT env)",
+    ),
+    embed: bool = typer.Option(
+        False, "--embed",
+        help="After each update, re-run embedding for symbols whose source "
+             "changed. Requires the [semantic] extra.",
+    ),
+    debounce_ms: int = typer.Option(
+        None, "--debounce-ms",
+        help="Coalesce file events within this window (default 300).",
+    ),
+    ignore: list[str] = typer.Option(
+        None, "--ignore",
+        help="Glob patterns to ignore (repeatable). Layered on top of "
+             ".gitignore + builtin ignores.",
+    ),
+) -> None:
+    """Mirror source-file edits into the graph live (Ctrl-C to stop)."""
+    settings = load_settings()
+    resolved_project = project or settings.livegraph_project
+    if not resolved_project:
+        typer.echo(
+            "LIVEGRAPH_PROJECT is not set. Pass --project NAME or set "
+            "LIVEGRAPH_PROJECT.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    backend = _make_backend()
+    try:
+        backend.verify()
+    except ConnectionError as exc:
+        typer.echo(f"Neo4j unreachable: {exc}", err=True)
+        backend.close()
+        raise typer.Exit(code=1) from exc
+
+    try:
+        resolved_root = path or _resolve_root_path(backend, resolved_project)
+        if not resolved_root:
+            typer.echo(
+                f"Project {resolved_project!r} has no stored root_path. "
+                f"Pass PATH or re-run `livegraph build` to populate it.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+        provider = None
+        if embed:
+            try:
+                provider = _make_embedding_provider(settings)
+            except EmbeddingExtraMissing as exc:
+                typer.echo(
+                    f"--embed requires the [semantic] extra: {exc}",
+                    err=True,
+                )
+                raise typer.Exit(code=1) from exc
+
+        window = debounce_ms or settings.livegraph_watch_debounce_ms
+        events: queue.Queue[ChangeEvent] = queue.Queue()
+        watcher = Watcher(
+            root=Path(resolved_root),
+            events=events,
+            user_ignores=tuple(ignore or ()),
+        )
+        debouncer = Debouncer(events, window_ms=window)
+        stop_flag = {"stop": False}
+
+        def _request_stop(_signum, _frame):
+            stop_flag["stop"] = True
+
+        prev_sigint = signal.signal(signal.SIGINT, _request_stop)
+
+        watcher.start()
+        typer.echo(
+            f"Watching {resolved_root} (project={resolved_project}, "
+            f"debounce={window}ms, embed={'on' if embed else 'off'})"
+        )
+
+        deps = LoopDeps(
+            backend=backend,
+            project=resolved_project,
+            root=resolved_root,
+            debouncer=debouncer,
+            update_files=update_files,
+            embed_project=embed_project if embed else None,
+            provider=provider,
+            should_stop=lambda: stop_flag["stop"],
+        )
+        try:
+            run_loop(deps)
+        finally:
+            watcher.stop()
+            signal.signal(signal.SIGINT, prev_sigint)
+            typer.echo("Watch stopped.")
     finally:
         backend.close()
 

@@ -162,3 +162,27 @@ in the project literally contains those words.
 If the `[semantic]` extra is not installed, the tool returns an empty
 result list with a warning containing the install hint, and the rest of
 livegraph keeps working.
+
+## Watch mode (`livegraph watch`)
+
+Mirror source-file edits into the graph live — useful while an MCP client
+is connected and you're editing code.
+
+```bash
+livegraph watch --project myproj /path/to/repo
+```
+
+Flags:
+
+- `--embed` — after each update, re-run embedding for symbols whose source
+  changed (requires `pip install 'livegraph[semantic]'`).
+- `--debounce-ms 300` — coalesce file events within this window (default
+  300; tunable via `LIVEGRAPH_WATCH_DEBOUNCE_MS`).
+- `--ignore PATTERN` — glob patterns to ignore (repeatable). Layered on top
+  of `.gitignore` and builtin ignores (`.git/`, `__pycache__/`, `.venv/`,
+  `venv/`, `node_modules/`).
+
+The loop logs each update; Ctrl-C stops it cleanly. Backend errors trigger
+exponential backoff (1s → 30s cap) so the watcher stays alive if Neo4j
+blips. Runtime CALLS edges from prior pytest runs are preserved on
+unchanged files.

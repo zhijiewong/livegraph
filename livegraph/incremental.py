@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from livegraph.discovery import discover_python_files, module_name
@@ -187,6 +188,73 @@ def reingest_files(
         unchanged=len(changeset.unchanged),
         parse_errors=parse_errors,
     )
+
+
+def update_files(
+    root: str,
+    backend: GraphBackend,
+    project: str,
+    paths: Iterable[str],
+    batch_size: int = 1000,
+) -> UpdateSummary:
+    """Re-ingest exactly the files in ``paths`` (absolute or relative).
+
+    Unlike :func:`reingest_files` (driven by a whole-tree
+    :func:`detect_changes` scan), this entry point only hashes the paths
+    the caller passes in. Used by the watch loop.
+    """
+    rels: list[str] = []
+    for p in paths:
+        ap = os.path.abspath(os.path.join(root, p)) \
+            if not os.path.isabs(p) else os.path.abspath(p)
+        try:
+            rel = os.path.relpath(ap, root)
+        except ValueError:
+            continue
+        if rel.startswith(".."):
+            continue
+        rels.append(rel)
+
+    if not rels:
+        return UpdateSummary(0, 0, 0, 0, 0)
+
+    stored_rows = backend.execute(
+        "MATCH (:Project {name: $project})-[:CONTAINS]->(f:File) "
+        "WHERE f.path IN $paths "
+        "RETURN f.path AS path, f.content_hash AS hash",
+        project=project, paths=rels,
+    )
+    stored = {row["path"]: row.get("hash") for row in stored_rows}
+
+    hashes: dict[str, str] = {}
+    added: list[str] = []
+    changed: list[str] = []
+    deleted: list[str] = []
+    for rel in rels:
+        ap = os.path.join(root, rel)
+        if not os.path.exists(ap):
+            if rel in stored:
+                deleted.append(rel)
+            continue
+        with open(ap, "rb") as handle:
+            h = hashlib.sha256(handle.read()).hexdigest()
+        hashes[rel] = h
+        if rel not in stored:
+            added.append(rel)
+        elif stored[rel] != h:
+            changed.append(rel)
+
+    if not (added or changed or deleted):
+        return UpdateSummary(0, 0, 0, 0, 0)
+
+    cs = ChangeSet(
+        added=sorted(added),
+        changed=sorted(changed),
+        deleted=sorted(deleted),
+        unchanged=[],
+        hashes=hashes,
+    )
+    return reingest_files(root, backend, project, cs, batch_size=batch_size)
 
 
 def _write_imports_for_file(backend: GraphBackend, imports: list,
