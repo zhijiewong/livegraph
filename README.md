@@ -258,3 +258,55 @@ in the graph:
 Example agent prompt: *"Are any of our domain modules importing
 infrastructure code by mistake?"* The agent calls `layering_violations`
 with the project's layering and gets back the specific edges to fix.
+
+## CI mode (`livegraph check`)
+
+Phase 12 turns the existing analysis surface into something CI can
+enforce. Drop a `.livegraph.toml` at the project root:
+
+```toml
+[project]
+name = "myproj"
+
+[checks.cycles]
+enabled = true
+scope = "module"
+max_cycles = 0
+
+[checks.layering]
+enabled = true
+max_violations = 0
+layers = [
+    { name = "web",    patterns = ["web/**", "api/**"] },
+    { name = "domain", patterns = ["domain/**"] },
+    { name = "infra",  patterns = ["infra/**", "db/**"] },
+]
+
+[checks.churn]
+enabled = true
+window_days = 30
+hot_files_threshold = 10
+ignore = ["tests/**"]
+
+[checks.hubs]
+enabled = false
+min_fanin = 25
+max_hubs = 0
+```
+
+Then in CI:
+
+```bash
+livegraph update          # refresh the graph
+livegraph check           # run all enabled checks
+```
+
+Exit codes: `0` = pass, `1` = at least one check failed, `2` = config
+or environment error (or, with `--strict`, the graph is stale vs disk).
+Output is human-readable by default; pass `--format json` for a
+machine-readable payload, `--fail-fast` to stop at the first failing
+check.
+
+Each check wraps an existing MCP tool — `find_cycles`,
+`layering_violations`, `top_churn`, `hubs` — so the agent's "show me"
+question and CI's "fail the build" question read the same graph data.
