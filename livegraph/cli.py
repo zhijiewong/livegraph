@@ -10,6 +10,10 @@ from pathlib import Path
 import typer
 
 from livegraph.augment import augment_from_observations
+from livegraph.check.config import ConfigError, load_config
+from livegraph.check.report import render_json, render_text
+from livegraph.check.runner import compute_exit_code, run_checks
+from livegraph.check import staleness as _staleness_mod
 from livegraph.history.ingest import ingest_history
 from livegraph.config import load_settings
 from livegraph.graph.backend import GraphBackend, Neo4jBackend
@@ -509,12 +513,6 @@ def ingest_history_cmd(
         )
     finally:
         backend.close()
-
-
-from livegraph.check.config import ConfigError, load_config
-from livegraph.check.report import render_json, render_text
-from livegraph.check.runner import compute_exit_code, run_checks
-import livegraph.check.staleness as _staleness_mod
 
 
 def _find_default_config(start: Path) -> Path | None:

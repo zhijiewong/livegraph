@@ -1,8 +1,6 @@
 """End-to-end: real Neo4j + .livegraph.toml + livegraph check."""
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from livegraph.check.config import load_config

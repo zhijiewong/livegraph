@@ -80,7 +80,7 @@ layers = [
     cfg = load_config(cfg_path)
     assert cfg.layering.enabled is True
     assert cfg.layering.edge_kind == "imports"
-    assert [l["name"] for l in cfg.layering.layers] == ["web", "domain"]
+    assert [layer["name"] for layer in cfg.layering.layers] == ["web", "domain"]
 
 
 def test_churn_ignore_parsed(tmp_path):

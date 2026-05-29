@@ -51,7 +51,7 @@ def check_layering(
         )
     out = layering_violations(
         backend, project,
-        layers=[dict(l) for l in cfg.layers],
+        layers=[dict(layer) for layer in cfg.layers],
         edge_kind=cfg.edge_kind,
         limit=max(cfg.max_violations + 50, 50),
     )
