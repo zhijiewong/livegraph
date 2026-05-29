@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from livegraph.mcp.tools_architecture import find_cycles
+from livegraph.mcp.tools_architecture import (
+    find_cycles,
+    hubs,
+    layering_violations,
+)
 
 
 class _FakeBackend:
@@ -116,7 +120,6 @@ def test_find_cycles_call_scope_provenance_static_filters_runtime():
 
 # ---- layering_violations -------------------------------------------
 
-from livegraph.mcp.tools_architecture import layering_violations
 
 
 def test_layering_empty_layers_warns():
@@ -242,7 +245,6 @@ def test_layering_edge_kind_filter_imports_only():
 
 # ---- hubs ----------------------------------------------------------
 
-from livegraph.mcp.tools_architecture import hubs
 
 
 def test_hubs_invalid_kind_warns():
