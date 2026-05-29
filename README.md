@@ -242,3 +242,19 @@ Caveats:
 - `livegraph update` and `livegraph watch` leave history edges alone.
   Run `ingest-history --since-last` after a long editing session to
   catch up.
+
+## Architecture analysis
+
+Three read-only MCP tools (bringing the count to 21) for "is our
+architecture healthy?" questions, all over edges that already exist
+in the graph:
+
+| Tool | What it answers |
+|---|---|
+| `find_cycles(scope, provenance, min_size, limit)` | Strongly-connected components in the call graph (`scope="call"`, filterable by `static`/`runtime`/`any`) or import graph (`scope="module"`). |
+| `layering_violations(layers, edge_kind, limit)` | Edges that go "up" the supplied layering. `layers` is an ordered list of `{name, patterns}` — top layers may depend on lower layers; the reverse is a violation. Files matching no pattern are unlayered and silently skipped; files matching multiple take the first. |
+| `hubs(kind, min_fanin, limit)` | Symbols with high inbound CALLS — the "everything depends on this helper" detector. |
+
+Example agent prompt: *"Are any of our domain modules importing
+infrastructure code by mistake?"* The agent calls `layering_violations`
+with the project's layering and gets back the specific edges to fix.
