@@ -28,7 +28,9 @@ def _history_present(backend: GraphBackend, project: str) -> bool:
 # -- symbol_history ----------------------------------------------------
 
 _SYMBOL_HISTORY_CYPHER = (
-    "MATCH (s {qualified_name: $qualified_name})-[e:CHANGED_IN]->(c:Commit) "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(c:Commit) "
+    "MATCH (s {qualified_name: $qualified_name})-[e:CHANGED_IN]->(c) "
+    "WHERE s:Function OR s:Method "
     "OPTIONAL MATCH (a:Author)-[:AUTHORED]->(c) "
     "RETURN c.sha AS sha, c.short_sha AS short_sha, "
     "       c.message AS message, c.timestamp AS timestamp, "
@@ -39,7 +41,8 @@ _SYMBOL_HISTORY_CYPHER = (
 )
 
 _SYMBOL_HISTORY_COUNT = (
-    "MATCH (s {qualified_name: $qualified_name})-[:CHANGED_IN]->(:Commit) "
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(c:Commit) "
+    "MATCH (s {qualified_name: $qualified_name})-[:CHANGED_IN]->(c) "
     "WHERE s:Function OR s:Method "
     "RETURN count(*) AS n"
 )
@@ -53,10 +56,11 @@ def symbol_history(
     limit = max(1, min(int(limit), _MAX_LIMIT))
     rows = backend.execute(
         _SYMBOL_HISTORY_CYPHER,
-        qualified_name=qualified_name, limit=limit,
+        project=project, qualified_name=qualified_name, limit=limit,
     )
     count_rows = backend.execute(
-        _SYMBOL_HISTORY_COUNT, qualified_name=qualified_name,
+        _SYMBOL_HISTORY_COUNT,
+        project=project, qualified_name=qualified_name,
     )
     total = int(count_rows[0].get("n") or 0) if count_rows else 0
     warning = None
@@ -84,11 +88,13 @@ _RECENT_CHANGES_CYPHER = (
     "WITH s, max(c.timestamp) AS last_changed, "
     "     count(DISTINCT c) AS commit_count "
     "MATCH (s)-[:CHANGED_IN]->(lc:Commit {timestamp: last_changed}) "
+    "WITH s, last_changed, commit_count, "
+    "     collect(lc.sha)[0] AS latest_sha "
     "RETURN s.qualified_name AS qualified_name, "
     "       head([l IN labels(s) "
     "             WHERE l IN ['Function','Method'] | toLower(l)]) AS kind, "
     "       s.file AS file, "
-    "       last_changed, commit_count, lc.sha AS latest_sha "
+    "       last_changed, commit_count, latest_sha "
     "ORDER BY last_changed DESC "
     "LIMIT $limit"
 )

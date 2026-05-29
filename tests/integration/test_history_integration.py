@@ -83,6 +83,11 @@ def test_recent_changes_lists_foo(history_project):
     qns = [r["qualified_name"] for r in result["results"]]
     # Qualified names use '::' separator, e.g. 'pkg/a.py::foo'
     assert any("foo" in q for q in qns)
+    # Regression: ties on last_changed (the fixture uses one
+    # GIT_AUTHOR_DATE for both commits) must not duplicate rows.
+    assert len(qns) == len(set(qns)), (
+        f"recent_changes produced duplicate rows: {qns}"
+    )
 
 
 def test_top_churn_ranks_foo_above_bar(history_project):
