@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 14 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 15 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -13,6 +13,9 @@ from mcp.server.fastmcp import FastMCP
 
 from livegraph.graph.backend import GraphBackend
 from livegraph.mcp import tools
+from livegraph.mcp.tools_neighborhood import (
+    semantic_neighborhood as _semantic_neighborhood,
+)
 from livegraph.semantic.provider import (
     EmbeddingExtraMissing, EmbeddingProvider,
 )
@@ -67,7 +70,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 def build_server(default_row_limit: int = 1000,
                  default_timeout_seconds: int = 30) -> FastMCP:
-    """Construct a FastMCP server with all 14 tools registered.
+    """Construct a FastMCP server with all 15 tools registered.
 
     Tool wrappers reference the module-level state set by ``bootstrap``.
     ``default_row_limit`` and ``default_timeout_seconds`` are the values
@@ -241,6 +244,51 @@ def build_server(default_row_limit: int = 1000,
         return tools.semantic_search(
             backend, project, provider, query=query,
             limit=limit, kind=kind,
+        )
+
+    @mcp.tool()
+    def semantic_neighborhood(
+        query: str,
+        limit: int = 10,
+        per_seed_limit: int = 10,
+        kind: str = "any",
+        include: list[str] | None = None,
+        min_score: float = 0.0,
+    ) -> dict[str, Any]:
+        """Vector seeds + per-seed callers/callees/tests in one call.
+
+        For each top-K semantic match to ``query``, returns the direct
+        callers (with ``static``/``runtime``/``both`` provenance),
+        callees (same), and tests that cover the symbol. Use this when
+        you want "where do I look, what do I run" rather than just
+        "what matches."
+
+        - ``limit``: top-K seeds (max 50).
+        - ``per_seed_limit``: cap per expansion list (max 50).
+        - ``kind``: ``"any"`` (default), ``"function"``, or ``"method"``.
+        - ``include``: subset of ``{"callers","callees","tests"}``.
+          Default is all three.
+        - ``min_score``: drop seeds below this cosine score.
+
+        Returns ``{results, model, embedded_count, warning}``. Graceful
+        degradation when the ``[semantic]`` extra isn't installed.
+        """
+        backend, project = _require_state()
+        provider = _get_or_load_provider()
+        if provider is None:
+            return {
+                "results": [],
+                "model": "unknown",
+                "embedded_count": 0,
+                "warning": (
+                    "semantic search not enabled — install with "
+                    "`pip install livegraph[semantic]`"
+                ),
+            }
+        return _semantic_neighborhood(
+            backend, project, provider, query=query, limit=limit,
+            per_seed_limit=per_seed_limit, kind=kind,
+            include=include, min_score=min_score,
         )
 
     return mcp
