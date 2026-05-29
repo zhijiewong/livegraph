@@ -11,7 +11,7 @@ def test_bootstrap_sets_state_and_returns_server():
     assert srv_mod._PROJECT == "sample"
 
 
-def test_build_server_registers_eighteen_tools_including_history():
+def test_build_server_registers_twenty_one_tools_including_architecture():
     backend = FakeBackend()
     server = bootstrap(backend, project="sample")
     tool_names = sorted(_registered_tool_names(server))
@@ -28,6 +28,9 @@ def test_build_server_registers_eighteen_tools_including_history():
         "symbol_history",
         "recent_changes",
         "top_churn",
+        "find_cycles",
+        "layering_violations",
+        "hubs",
     ])
     assert tool_names == expected
 

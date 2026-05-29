@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 18 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 21 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -13,6 +13,11 @@ from mcp.server.fastmcp import FastMCP
 
 from livegraph.graph.backend import GraphBackend
 from livegraph.mcp import tools
+from livegraph.mcp.tools_architecture import (
+    find_cycles as _find_cycles,
+    hubs as _hubs,
+    layering_violations as _layering_violations,
+)
 from livegraph.mcp.tools_history import (
     recent_changes as _recent_changes,
     symbol_history as _symbol_history,
@@ -75,7 +80,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 def build_server(default_row_limit: int = 1000,
                  default_timeout_seconds: int = 30) -> FastMCP:
-    """Construct a FastMCP server with all 18 tools registered.
+    """Construct a FastMCP server with all 21 tools registered.
 
     Tool wrappers reference the module-level state set by ``bootstrap``.
     ``default_row_limit`` and ``default_timeout_seconds`` are the values
@@ -336,6 +341,60 @@ def build_server(default_row_limit: int = 1000,
         backend, project = _require_state()
         return _top_churn(backend, project,
                           window_days=window_days, limit=limit, kind=kind)
+
+    @mcp.tool()
+    def find_cycles(
+        scope: str = "call",
+        provenance: str = "any",
+        min_size: int = 2,
+        limit: int = 20,
+    ) -> dict[str, Any]:
+        """Strongly-connected components in the call or import graph.
+
+        ``scope="call"`` searches symbol→symbol CALLS edges (filterable
+        by ``provenance``: ``"any"``, ``"static"``, ``"runtime"``).
+        ``scope="module"`` searches file→file IMPORTS edges.
+        Trivial self-loops are filtered by default (``min_size=2``).
+        """
+        backend, project = _require_state()
+        return _find_cycles(backend, project, scope=scope,
+                            provenance=provenance,
+                            min_size=min_size, limit=limit)
+
+    @mcp.tool()
+    def layering_violations(
+        layers: list[dict[str, Any]],
+        edge_kind: str = "any",
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Report edges that go 'up' the supplied layering.
+
+        ``layers`` is an ordered list of ``{"name": str, "patterns":
+        list[str]}``. Upper layers may depend on lower layers; the
+        reverse is a violation. Glob patterns match against
+        ``File.path``. Files matching no pattern are unlayered and
+        skipped (counted in ``summary.files_unlayered``). Files
+        matching multiple patterns take the first matching layer.
+        """
+        backend, project = _require_state()
+        return _layering_violations(
+            backend, project, layers=layers,
+            edge_kind=edge_kind, limit=limit,
+        )
+
+    @mcp.tool()
+    def hubs(
+        kind: str = "any", min_fanin: int = 10, limit: int = 20,
+    ) -> dict[str, Any]:
+        """Symbols with high inbound CALLS — "everything depends on this".
+
+        Returns symbols whose distinct in-callers ≥ ``min_fanin``,
+        ordered by in-degree descending. ``kind`` is ``"any"``,
+        ``"function"``, or ``"method"``.
+        """
+        backend, project = _require_state()
+        return _hubs(backend, project, kind=kind,
+                     min_fanin=min_fanin, limit=limit)
 
     return mcp
 
