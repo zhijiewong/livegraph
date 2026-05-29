@@ -213,3 +213,32 @@ Example agent prompt: *"Where does this codebase do JWT verification,
 and what tests cover it?"* The agent calls `semantic_neighborhood`
 once and gets matching functions, their call sites, and the tests it
 should run to validate a change.
+
+## Git history (`livegraph ingest-history`)
+
+Phase 10 attaches a time/authorship axis to the graph. Walk the
+project's git history into `(:Commit)` / `(:Author)` nodes with
+`CHANGED_IN` edges (file-level always; symbol-level when commit hunks
+overlap the symbol's current source lines).
+
+```bash
+livegraph ingest-history --project myproj /path/to/repo
+livegraph ingest-history --project myproj --since-last   # incremental
+```
+
+Three new MCP tools (bringing the count to 18):
+
+| Tool | What it answers |
+|---|---|
+| `symbol_history(qualified_name, limit)` | Recent commits + authors that touched a symbol. |
+| `recent_changes(since, limit, kind)` | Symbols changed in commits since a timestamp. |
+| `top_churn(window_days, limit, kind)` | Hotspot symbols ranked by commit count. |
+
+Caveats:
+- Attribution uses the *current* parse's line ranges, so symbols whose
+  lines moved a lot through history may be over- or under-credited for
+  old commits. Recent commits are accurate.
+- Author identity keys on email; respects `.mailmap` if present.
+- `livegraph update` and `livegraph watch` leave history edges alone.
+  Run `ingest-history --since-last` after a long editing session to
+  catch up.
