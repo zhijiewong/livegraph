@@ -65,7 +65,7 @@ def test_writer_writes_symbol_changed_in_when_attribution_present():
         "a" * 40: {"pkg.foo": 3, "pkg.bar": 7},
     })
     sym_call = next(
-        c for c in backend.calls if "(s:Symbol" in c[0] and "CHANGED_IN" in c[0]
+        c for c in backend.calls if "CHANGED_IN" in c[0] and "qualified_name" in c[0]
     )
     rows = sym_call[1]["rows"]
     by_qn = {r["qualified_name"]: r["lines_overlapped"] for r in rows}

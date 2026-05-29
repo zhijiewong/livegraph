@@ -39,7 +39,8 @@ _SYMBOL_HISTORY_CYPHER = (
 )
 
 _SYMBOL_HISTORY_COUNT = (
-    "MATCH (s:Symbol {qualified_name: $qualified_name})-[:CHANGED_IN]->(:Commit) "
+    "MATCH (s {qualified_name: $qualified_name})-[:CHANGED_IN]->(:Commit) "
+    "WHERE s:Function OR s:Method "
     "RETURN count(*) AS n"
 )
 
@@ -76,18 +77,18 @@ def symbol_history(
 _RECENT_CHANGES_CYPHER = (
     "MATCH (:Project {name: $project})-[:CONTAINS]->(c:Commit) "
     "WHERE ($since IS NULL OR c.timestamp >= $since) "
-    "MATCH (s:Symbol)-[:CHANGED_IN]->(c) "
+    "MATCH (s)-[:CHANGED_IN]->(c) "
     "WHERE ($kind = 'any' AND (s:Function OR s:Method)) "
     "   OR ($kind = 'function' AND s:Function AND NOT s:Test) "
     "   OR ($kind = 'method' AND s:Method) "
     "WITH s, max(c.timestamp) AS last_changed, "
-    "     count(DISTINCT c) AS commit_count, "
-    "     head(collect(c.sha ORDER BY c.timestamp DESC)) AS latest_sha "
+    "     count(DISTINCT c) AS commit_count "
+    "MATCH (s)-[:CHANGED_IN]->(lc:Commit {timestamp: last_changed}) "
     "RETURN s.qualified_name AS qualified_name, "
     "       head([l IN labels(s) "
     "             WHERE l IN ['Function','Method'] | toLower(l)]) AS kind, "
     "       s.file AS file, "
-    "       last_changed, commit_count, latest_sha "
+    "       last_changed, commit_count, lc.sha AS latest_sha "
     "ORDER BY last_changed DESC "
     "LIMIT $limit"
 )
@@ -122,11 +123,11 @@ def recent_changes(
 _TOP_CHURN_CYPHER = (
     "MATCH (:Project {name: $project})-[:CONTAINS]->(c:Commit) "
     "WHERE c.timestamp >= $cutoff "
-    "MATCH (s:Symbol)-[:CHANGED_IN]->(c) "
-    "OPTIONAL MATCH (a:Author)-[:AUTHORED]->(c) "
+    "MATCH (s)-[:CHANGED_IN]->(c) "
     "WHERE ($kind = 'any' AND (s:Function OR s:Method)) "
     "   OR ($kind = 'function' AND s:Function AND NOT s:Test) "
     "   OR ($kind = 'method' AND s:Method) "
+    "OPTIONAL MATCH (a:Author)-[:AUTHORED]->(c) "
     "WITH s, "
     "     count(DISTINCT c) AS commit_count, "
     "     count(DISTINCT a) AS unique_authors, "

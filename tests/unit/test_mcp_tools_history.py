@@ -28,6 +28,8 @@ class _FakeBackend:
 
 def test_symbol_history_returns_commits_newest_first():
     backend = _FakeBackend({
+        # Count query has WHERE clause; match it first to avoid ambiguity
+        "WHERE s:Function OR s:Method RETURN count": [{"n": 2}],
         "MATCH (s {qualified_name": [
             {"sha": "b" * 40, "short_sha": "bbbbbbb", "message": "newer",
              "timestamp": "2026-05-15T00:00:00+00:00",
@@ -38,7 +40,6 @@ def test_symbol_history_returns_commits_newest_first():
              "author_email": "alice@x", "author_name": "Alice",
              "lines_overlapped": 2},
         ],
-        "RETURN count": [{"n": 2}],
     })
     result = symbol_history(backend, project="p",
                             qualified_name="pkg.foo", limit=10)
@@ -50,8 +51,8 @@ def test_symbol_history_returns_commits_newest_first():
 
 def test_symbol_history_warns_when_no_history_ingested():
     backend = _FakeBackend({
+        "WHERE s:Function OR s:Method RETURN count": [{"n": 0}],
         "MATCH (s {qualified_name": [],
-        "RETURN count": [{"n": 0}],
         "MATCH (:Project {name: $project})-[:CONTAINS]->(:Commit)": [
             {"n": 0},
         ],

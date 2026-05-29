@@ -58,7 +58,7 @@ def _diff_tree_for(root: str, sha: str, path: str) -> bytes:
     try:
         return _run_git(
             root,
-            ["diff-tree", "-p", "--no-renames", "--no-color",
+            ["diff-tree", "-p", "--root", "--no-renames", "--no-color",
              "--unified=0", sha, "--", path],
         )
     except subprocess.CalledProcessError as exc:

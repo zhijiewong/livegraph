@@ -98,7 +98,8 @@ class HistoryWriter:
         self._batched(
             "UNWIND $rows AS row "
             "MATCH (c:Commit {sha: row.sha}) "
-            "MATCH (s:Symbol {qualified_name: row.qualified_name}) "
+            "MATCH (s {qualified_name: row.qualified_name}) "
+            "WHERE s:Function OR s:Method "
             "MERGE (s)-[e:CHANGED_IN]->(c) "
             "SET e.lines_overlapped = row.lines_overlapped",
             rows,
