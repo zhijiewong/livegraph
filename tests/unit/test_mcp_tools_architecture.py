@@ -112,3 +112,129 @@ def test_find_cycles_call_scope_provenance_static_filters_runtime():
     find_cycles(backend, project="p", scope="call", provenance="static")
     cypher = backend.calls[0][0]
     assert "c.static" in cypher
+
+
+# ---- layering_violations -------------------------------------------
+
+from livegraph.mcp.tools_architecture import layering_violations
+
+
+def test_layering_empty_layers_warns():
+    backend = _FakeBackend([])
+    out = layering_violations(backend, project="p", layers=[])
+    assert out["violations"] == []
+    assert "empty" in (out["warning"] or "").lower()
+
+
+def test_layering_invalid_edge_kind_warns():
+    backend = _FakeBackend([])
+    out = layering_violations(
+        backend, project="p",
+        layers=[{"name": "x", "patterns": ["*"]}],
+        edge_kind="bogus",
+    )
+    assert out["violations"] == []
+    assert "edge_kind" in (out["warning"] or "").lower()
+
+
+def test_layering_detects_imports_violation():
+    backend = _FakeBackend({
+        "(f:File)": [
+            {"path": "domain/calc.py"},
+            {"path": "web/handlers.py"},
+            {"path": "scripts/run.py"},  # unmatched
+        ],
+        ":IMPORTS": [
+            {"from_file": "domain/calc.py", "to_file": "web/handlers.py"},
+        ],
+        "CALLS": [],
+    })
+    out = layering_violations(
+        backend, project="p",
+        layers=[
+            {"name": "web", "patterns": ["web/**"]},
+            {"name": "domain", "patterns": ["domain/**"]},
+        ],
+    )
+    assert any(
+        v["from_file"] == "domain/calc.py" and v["to_file"] == "web/handlers.py"
+        for v in out["violations"]
+    )
+    assert out["summary"]["files_unlayered"] == 1
+
+
+def test_layering_first_match_wins_for_multimatch():
+    # domain/auth/login.py matches both "domain/auth/**" (auth, rank 0) and
+    # "domain/**" (domain, rank 2). First-match-wins assigns "auth" (rank 0).
+    # auth(0) -> web(1): rank 0 < rank 1, so NOT a violation (top-down is OK).
+    # If "domain" had been assigned instead, domain(2)->web(1) would be a
+    # violation. Verify first-match-wins prevents that false positive.
+    backend = _FakeBackend({
+        "(f:File)": [
+            {"path": "domain/auth/login.py"},
+            {"path": "web/handlers.py"},
+        ],
+        ":IMPORTS": [
+            {"from_file": "domain/auth/login.py",
+             "to_file": "web/handlers.py"},
+        ],
+        "CALLS": [],
+    })
+    out = layering_violations(
+        backend, project="p",
+        layers=[
+            {"name": "auth", "patterns": ["domain/auth/**"]},
+            {"name": "web", "patterns": ["web/**"]},
+            {"name": "domain", "patterns": ["domain/**"]},
+        ],
+    )
+    # First-match-wins correctly assigns "auth" (rank 0), which may depend on
+    # web (rank 1); no upward violation is present.
+    assert out["violations"] == []
+
+
+def test_layering_skips_intra_layer_and_top_to_bottom_edges():
+    backend = _FakeBackend({
+        "(f:File)": [
+            {"path": "web/a.py"}, {"path": "web/b.py"},
+            {"path": "domain/c.py"},
+        ],
+        ":IMPORTS": [
+            {"from_file": "web/a.py", "to_file": "web/b.py"},      # intra
+            {"from_file": "web/a.py", "to_file": "domain/c.py"},   # web->domain OK
+        ],
+        "CALLS": [],
+    })
+    out = layering_violations(
+        backend, project="p",
+        layers=[
+            {"name": "web", "patterns": ["web/**"]},
+            {"name": "domain", "patterns": ["domain/**"]},
+        ],
+    )
+    assert out["violations"] == []
+    assert out["summary"]["violations"] == 0
+
+
+def test_layering_edge_kind_filter_imports_only():
+    backend = _FakeBackend({
+        "(f:File)": [
+            {"path": "domain/c.py"}, {"path": "web/h.py"},
+        ],
+        ":IMPORTS": [
+            {"from_file": "domain/c.py", "to_file": "web/h.py"},
+        ],
+        "CALLS": [
+            {"from_file": "domain/c.py", "to_file": "web/h.py"},
+        ],
+    })
+    out = layering_violations(
+        backend, project="p",
+        layers=[
+            {"name": "web", "patterns": ["web/**"]},
+            {"name": "domain", "patterns": ["domain/**"]},
+        ],
+        edge_kind="imports",
+    )
+    kinds = {v["edge_kind"] for v in out["violations"]}
+    assert kinds == {"imports"}
