@@ -39,6 +39,9 @@ def test_mcp_server_lists_and_calls_tools_over_protocol(ingested_sample):
             "describe_schema", "run_cypher",
             "semantic_search",
             "semantic_neighborhood",
+            "symbol_history",
+            "recent_changes",
+            "top_churn",
         ])
         # Invoke graph_status through the manager (same code path FastMCP
         # uses when an MCP client calls a tool over stdio).

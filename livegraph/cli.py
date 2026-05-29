@@ -9,6 +9,7 @@ from pathlib import Path
 import typer
 
 from livegraph.augment import augment_from_observations
+from livegraph.history.ingest import ingest_history
 from livegraph.config import load_settings
 from livegraph.graph.backend import GraphBackend, Neo4jBackend
 from livegraph.incremental import detect_changes, reingest_files, update_files
@@ -437,6 +438,74 @@ def watch(
             watcher.stop()
             signal.signal(signal.SIGINT, prev_sigint)
             typer.echo("Watch stopped.")
+    finally:
+        backend.close()
+
+
+@app.command("ingest-history")
+def ingest_history_cmd(
+    path: str = typer.Argument(
+        None,
+        help="Project root (defaults to the Project's stored root_path)",
+    ),
+    project: str = typer.Option(
+        None, "--project",
+        help="Ingested project to attach history to (overrides LIVEGRAPH_PROJECT)",
+    ),
+    since_last: bool = typer.Option(
+        False, "--since-last",
+        help="Only ingest commits newer than the project's last_history_sha",
+    ),
+    max_commits: int = typer.Option(
+        None, "--max-commits",
+        help="Cap the number of commits walked (default: no cap)",
+    ),
+) -> None:
+    """Phase 10: walk git history and attach commit/author edges."""
+    import os
+    settings = load_settings()
+    resolved_project = project or settings.livegraph_project
+    if not resolved_project:
+        typer.echo(
+            "LIVEGRAPH_PROJECT is not set. Pass --project NAME or set "
+            "LIVEGRAPH_PROJECT.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    backend = _make_backend()
+    try:
+        backend.verify()
+    except ConnectionError as exc:
+        typer.echo(f"Neo4j unreachable: {exc}", err=True)
+        backend.close()
+        raise typer.Exit(code=1) from exc
+
+    try:
+        resolved_root = path or _resolve_root_path(backend, resolved_project)
+        if not resolved_root:
+            typer.echo(
+                f"Project {resolved_project!r} has no stored root_path. "
+                f"Pass PATH or re-run `livegraph build`.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        if not os.path.isdir(os.path.join(resolved_root, ".git")):
+            typer.echo(
+                f"not a git repository: {resolved_root}",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+        summary = ingest_history(
+            resolved_root, backend, resolved_project,
+            since_last=since_last, max_commits=max_commits,
+        )
+        typer.echo(
+            f"History ingest complete: {summary.commits} commits, "
+            f"{summary.files} file changes, "
+            f"{summary.symbol_attributions} symbol attributions."
+        )
     finally:
         backend.close()
 
