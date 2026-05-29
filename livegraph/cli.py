@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import queue
 import signal
+import sys
 from pathlib import Path
 
 import typer
@@ -506,6 +507,101 @@ def ingest_history_cmd(
             f"{summary.files} file changes, "
             f"{summary.symbol_attributions} symbol attributions."
         )
+    finally:
+        backend.close()
+
+
+from livegraph.check.config import ConfigError, load_config
+from livegraph.check.report import render_json, render_text
+from livegraph.check.runner import compute_exit_code, run_checks
+import livegraph.check.staleness as _staleness_mod
+
+
+def _find_default_config(start: Path) -> Path | None:
+    cur = start.resolve()
+    for parent in [cur, *cur.parents]:
+        candidate = parent / ".livegraph.toml"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+@app.command()
+def check(
+    path: str = typer.Argument(
+        None,
+        help="Project root (defaults to the Project's stored root_path)",
+    ),
+    config: str = typer.Option(
+        None, "--config",
+        help="Path to .livegraph.toml (default: search up from CWD)",
+    ),
+    format: str = typer.Option(
+        "text", "--format",
+        help="Output format: text or json",
+    ),
+    fail_fast: bool = typer.Option(
+        False, "--fail-fast",
+        help="Stop at the first failing check",
+    ),
+    strict: bool = typer.Option(
+        False, "--strict",
+        help="Promote staleness drift to exit code 2",
+    ),
+) -> None:
+    """CI mode: run config-driven checks against the graph."""
+    if format not in ("text", "json"):
+        typer.echo(f"unknown --format: {format!r}", err=True)
+        raise typer.Exit(code=2)
+
+    if config:
+        cfg_path = Path(config)
+    else:
+        cfg_path = _find_default_config(Path.cwd())
+        if cfg_path is None:
+            typer.echo(
+                "no .livegraph.toml found; pass --config or create one",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+    try:
+        cfg = load_config(cfg_path)
+    except ConfigError as exc:
+        typer.echo(f"config error: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+
+    backend = _make_backend()
+    try:
+        backend.verify()
+    except ConnectionError as exc:
+        typer.echo(f"Neo4j unreachable: {exc}", err=True)
+        backend.close()
+        raise typer.Exit(code=2) from exc
+
+    try:
+        resolved_root = path or _resolve_root_path(backend, cfg.project)
+        if not resolved_root:
+            typer.echo(
+                f"Project {cfg.project!r} not in graph; "
+                f"run `livegraph build` first.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+        staleness = _staleness_mod.probe_staleness(resolved_root, backend, cfg.project)
+        report = run_checks(cfg, backend, staleness=staleness,
+                            fail_fast=fail_fast)
+        exit_code = compute_exit_code(
+            report.results, staleness, strict=strict,
+        )
+
+        if format == "json":
+            sys.stdout.write(render_json(report, exit_code=exit_code))
+            sys.stdout.write("\n")
+        else:
+            typer.echo(render_text(report))
+        raise typer.Exit(code=exit_code)
     finally:
         backend.close()
 
