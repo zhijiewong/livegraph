@@ -1,4 +1,4 @@
-"""FastMCP server that exposes livegraph's 15 read-only tools over stdio.
+"""FastMCP server that exposes livegraph's 18 read-only tools over stdio.
 
 The module-level ``_BACKEND`` and ``_PROJECT`` globals are set once via
 ``bootstrap()`` at startup. Each FastMCP-registered wrapper calls into
@@ -13,6 +13,11 @@ from mcp.server.fastmcp import FastMCP
 
 from livegraph.graph.backend import GraphBackend
 from livegraph.mcp import tools
+from livegraph.mcp.tools_history import (
+    recent_changes as _recent_changes,
+    symbol_history as _symbol_history,
+    top_churn as _top_churn,
+)
 from livegraph.mcp.tools_neighborhood import (
     semantic_neighborhood as _semantic_neighborhood,
 )
@@ -70,7 +75,7 @@ def _require_state() -> tuple[GraphBackend, str]:
 
 def build_server(default_row_limit: int = 1000,
                  default_timeout_seconds: int = 30) -> FastMCP:
-    """Construct a FastMCP server with all 15 tools registered.
+    """Construct a FastMCP server with all 18 tools registered.
 
     Tool wrappers reference the module-level state set by ``bootstrap``.
     ``default_row_limit`` and ``default_timeout_seconds`` are the values
@@ -290,6 +295,47 @@ def build_server(default_row_limit: int = 1000,
             per_seed_limit=per_seed_limit, kind=kind,
             include=include, min_score=min_score,
         )
+
+    @mcp.tool()
+    def symbol_history(
+        qualified_name: str, limit: int = 20,
+    ) -> dict[str, Any]:
+        """Recent commits that touched ``qualified_name``, newest first.
+
+        Returns ``{qualified_name, commits, total_commits, warning}``.
+        ``commits`` carries sha/short_sha/message/timestamp/author and
+        the per-symbol lines_overlapped credit.
+        """
+        backend, project = _require_state()
+        return _symbol_history(backend, project,
+                               qualified_name=qualified_name, limit=limit)
+
+    @mcp.tool()
+    def recent_changes(
+        since: str | None = None, limit: int = 50, kind: str = "any",
+    ) -> dict[str, Any]:
+        """Symbols changed in commits with timestamp >= ``since`` (ISO-8601).
+
+        If ``since`` is null, returns the most recent ``limit`` symbols
+        by ``last_changed``. ``kind`` is ``"any"``, ``"function"``, or
+        ``"method"``.
+        """
+        backend, project = _require_state()
+        return _recent_changes(backend, project,
+                               since=since, limit=limit, kind=kind)
+
+    @mcp.tool()
+    def top_churn(
+        window_days: int = 30, limit: int = 20, kind: str = "any",
+    ) -> dict[str, Any]:
+        """Top-K symbols by distinct commits in the last ``window_days``.
+
+        Returns ``{window_days, results, warning}`` ordered by
+        ``commit_count DESC, last_changed DESC``.
+        """
+        backend, project = _require_state()
+        return _top_churn(backend, project,
+                          window_days=window_days, limit=limit, kind=kind)
 
     return mcp
 
