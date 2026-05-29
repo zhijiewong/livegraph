@@ -238,3 +238,51 @@ def test_layering_edge_kind_filter_imports_only():
     )
     kinds = {v["edge_kind"] for v in out["violations"]}
     assert kinds == {"imports"}
+
+
+# ---- hubs ----------------------------------------------------------
+
+from livegraph.mcp.tools_architecture import hubs
+
+
+def test_hubs_invalid_kind_warns():
+    backend = _FakeBackend([])
+    out = hubs(backend, project="p", kind="bogus")
+    assert out["results"] == []
+    assert "kind" in (out["warning"] or "").lower()
+
+
+def test_hubs_returns_results_ordered_by_in_callers_desc():
+    backend = _FakeBackend([
+        {"qualified_name": "pkg.util.normalize", "kind": "function",
+         "file": "pkg/util.py", "in_callers": 47, "out_callees": 3},
+        {"qualified_name": "pkg.util.format", "kind": "function",
+         "file": "pkg/util.py", "in_callers": 12, "out_callees": 1},
+    ])
+    out = hubs(backend, project="p", min_fanin=10)
+    assert [r["qualified_name"] for r in out["results"]] == [
+        "pkg.util.normalize", "pkg.util.format",
+    ]
+
+
+def test_hubs_passes_min_fanin_and_limit_to_query():
+    backend = _FakeBackend([])
+    hubs(backend, project="p", min_fanin=50, limit=5)
+    cypher, params = backend.calls[0]
+    assert params["min_fanin"] == 50
+    assert params["limit"] == 5
+
+
+def test_hubs_clamps_min_fanin_and_limit():
+    backend = _FakeBackend([])
+    hubs(backend, project="p", min_fanin=99999, limit=9999)
+    _, params = backend.calls[0]
+    assert params["min_fanin"] == 1000
+    assert params["limit"] == 100
+
+
+def test_hubs_kind_function_excludes_methods_in_cypher():
+    backend = _FakeBackend([])
+    hubs(backend, project="p", kind="function")
+    cypher = backend.calls[0][0]
+    assert "Function" in cypher

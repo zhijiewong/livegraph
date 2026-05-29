@@ -254,3 +254,52 @@ def layering_violations(
         },
         "warning": None,
     }
+
+
+# ---- hubs ----------------------------------------------------------
+
+_HUBS_CYPHER = (
+    "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
+    "-[:DEFINES|HAS_METHOD*1..2]->(s) "
+    "WHERE ($kind = 'any' AND (s:Function OR s:Method)) "
+    "   OR ($kind = 'function' AND s:Function AND NOT s:Test) "
+    "   OR ($kind = 'method' AND s:Method) "
+    "OPTIONAL MATCH (caller)-[:CALLS]->(s) "
+    "OPTIONAL MATCH (s)-[:CALLS]->(callee) "
+    "WITH s, "
+    "     count(DISTINCT caller) AS in_callers, "
+    "     count(DISTINCT callee) AS out_callees "
+    "WHERE in_callers >= $min_fanin "
+    "RETURN s.qualified_name AS qualified_name, "
+    "       head([l IN labels(s) "
+    "             WHERE l IN ['Function','Method'] | toLower(l)]) AS kind, "
+    "       s.file AS file, "
+    "       in_callers, out_callees "
+    "ORDER BY in_callers DESC, qualified_name ASC "
+    "LIMIT $limit"
+)
+
+
+def hubs(
+    backend: GraphBackend,
+    project: str,
+    kind: str = "any",
+    min_fanin: int = 10,
+    limit: int = 20,
+) -> dict[str, Any]:
+    """Symbols with high in-degree (most-called functions/methods)."""
+    if kind not in _VALID_KINDS:
+        return {
+            "results": [],
+            "warning": (
+                f"invalid kind {kind!r}; "
+                f"must be one of {list(_VALID_KINDS)}"
+            ),
+        }
+    min_fanin = max(1, min(int(min_fanin), _MAX_MIN_FANIN))
+    limit = max(1, min(int(limit), _MAX_LIMIT))
+    rows = backend.execute(
+        _HUBS_CYPHER, project=project, kind=kind,
+        min_fanin=min_fanin, limit=limit,
+    )
+    return {"results": rows, "warning": None}
