@@ -123,3 +123,15 @@ def test_compute_exit_code_one_on_drift_without_strict():
         results, StalenessReport(drifted_files=3), strict=False,
     )
     assert code == 0
+
+
+def test_compute_exit_code_two_when_strict_drift_overrides_failure():
+    """strict+drift wins over a check failure."""
+    results = (
+        CheckResult(check="cycles", status="failed",
+                    actual=1, threshold=0),
+    )
+    code = compute_exit_code(
+        results, StalenessReport(drifted_files=3), strict=True,
+    )
+    assert code == 2

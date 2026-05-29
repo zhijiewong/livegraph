@@ -68,7 +68,8 @@ def load_config(path: Path) -> CheckConfig:
     if not path.exists():
         raise ConfigError(f"config file not found: {path}")
     try:
-        data = tomllib.loads(path.read_text())
+        with path.open("rb") as fh:
+            data = tomllib.load(fh)
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"malformed TOML in {path}: {exc}") from exc
 

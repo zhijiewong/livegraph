@@ -86,11 +86,15 @@ def check_churn(
         if _matches_any(file, cfg.ignore):
             continue
         hotspots.append(r)
+    # `actual` is the count of hot-and-not-ignored symbols; the
+    # implicit threshold on that count is 0. `hot_files_threshold`
+    # is the per-symbol commit-count cutoff applied above, not a
+    # count threshold.
     actual = len(hotspots)
     status = "passed" if actual == 0 else "failed"
     return CheckResult(
         check="churn", status=status,
-        actual=actual, threshold=cfg.hot_files_threshold,
+        actual=actual, threshold=0,
         items=tuple(hotspots),
     )
 
