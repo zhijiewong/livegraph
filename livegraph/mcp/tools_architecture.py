@@ -261,7 +261,7 @@ def layering_violations(
 _HUBS_CYPHER = (
     "MATCH (:Project {name: $project})-[:CONTAINS]->(:File)"
     "-[:DEFINES|HAS_METHOD*1..2]->(s) "
-    "WHERE ($kind = 'any' AND (s:Function OR s:Method)) "
+    "WHERE ($kind = 'any' AND (s:Function OR s:Method) AND NOT s:Test) "
     "   OR ($kind = 'function' AND s:Function AND NOT s:Test) "
     "   OR ($kind = 'method' AND s:Method) "
     "OPTIONAL MATCH (caller)-[:CALLS]->(s) "
