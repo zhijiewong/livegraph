@@ -42,12 +42,21 @@ def _make_backend() -> GraphBackend:
 
 
 @app.command()
-def ingest(path: str = typer.Argument(..., help="Project root to ingest")) -> None:
+def ingest(
+    path: str = typer.Argument(..., help="Project root to ingest"),
+    lang: str = typer.Option(
+        "auto", "--lang",
+        help="Which language(s) to ingest: auto, python, typescript",
+    ),
+) -> None:
     """Phase 1: build the static graph for the project at PATH."""
+    if lang not in ("auto", "python", "typescript"):
+        typer.echo(f"unknown --lang: {lang!r}", err=True)
+        raise typer.Exit(code=2)
     settings = load_settings()
     backend = _make_backend()
     try:
-        summary = ingest_project(path, backend,
+        summary = ingest_project(path, backend, lang=lang,
                                  batch_size=settings.livegraph_batch_size)
     finally:
         backend.close()
@@ -119,29 +128,37 @@ def trace(
 def build(
     path: str = typer.Argument(..., help="Project root to build"),
     python: str = typer.Option(None, "--python", help="Target interpreter"),
+    lang: str = typer.Option(
+        "auto", "--lang",
+        help="Which language(s) to ingest: auto, python, typescript",
+    ),
 ) -> None:
     """Run Phase 1 then Phase 2 for the project at PATH."""
+    if lang not in ("auto", "python", "typescript"):
+        typer.echo(f"unknown --lang: {lang!r}", err=True)
+        raise typer.Exit(code=2)
     settings = load_settings()
     backend = _make_backend()
     try:
         ingest_summary = ingest_project(
-            path, backend, batch_size=settings.livegraph_batch_size)
+            path, backend, lang=lang, batch_size=settings.livegraph_batch_size)
         typer.echo(
             f"Phase 1 complete: {ingest_summary.files} files, "
             f"{ingest_summary.definitions} definitions."
         )
-        try:
-            observations = run_pytest(path, python=python)
-            augment_summary = augment_from_observations(
-                observations, backend,
-                batch_size=settings.livegraph_batch_size)
-            typer.echo(
-                f"Phase 2 complete: "
-                f"{augment_summary.runtime_call_edges} runtime call edges, "
-                f"{augment_summary.tests} tests."
-            )
-        except RuntimeUnavailable as exc:
-            typer.echo(f"Phase 2 skipped: {exc}", err=True)
+        if lang in ("auto", "python"):
+            try:
+                observations = run_pytest(path, python=python)
+                augment_summary = augment_from_observations(
+                    observations, backend,
+                    batch_size=settings.livegraph_batch_size)
+                typer.echo(
+                    f"Phase 2 complete: "
+                    f"{augment_summary.runtime_call_edges} runtime call edges, "
+                    f"{augment_summary.tests} tests."
+                )
+            except RuntimeUnavailable as exc:
+                typer.echo(f"Phase 2 skipped: {exc}", err=True)
     finally:
         backend.close()
 
