@@ -42,3 +42,15 @@ def test_gitignore_respected(tmp_path):
 def test_paths_outside_root_rejected(tmp_path):
     pf = make_filter(tmp_path)
     assert pf.accepts(Path("/etc/passwd.py")) is False
+
+
+def test_typescript_files_accepted(tmp_path):
+    pf = make_filter(tmp_path)
+    for name in ["a.ts", "b.tsx", "c.js", "d.jsx", "e.mjs", "f.cjs"]:
+        assert pf.accepts(tmp_path / name) is True
+
+
+def test_other_extensions_rejected(tmp_path):
+    pf = make_filter(tmp_path)
+    assert pf.accepts(tmp_path / "x.go") is False
+    assert pf.accepts(tmp_path / "x.rs") is False
