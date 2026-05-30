@@ -67,21 +67,25 @@ def _walk(
     if nt in ("lexical_declaration", "variable_declaration"):
         for declarator in _children_of_type(node, "variable_declarator"):
             init = declarator.child_by_field_name("value")
-            if init is None or init.type not in (
+            if init is not None and init.type in (
                 "arrow_function", "function_expression",
             ):
-                continue
-            ident = declarator.child_by_field_name("name")
-            if ident is None or ident.type != "identifier":
-                continue
-            name = _text(ident, source)
-            qn = symbol_qid(rel_path, name)
-            definitions.append(_def(
-                qn, "function", name, rel_path, node, source,
-                parent_class=None,
-            ))
-            _walk_children(init, source, rel_path, qn, None,
-                           definitions, imports, calls)
+                ident = declarator.child_by_field_name("name")
+                if ident is not None and ident.type == "identifier":
+                    name = _text(ident, source)
+                    qn = symbol_qid(rel_path, name)
+                    definitions.append(_def(
+                        qn, "function", name, rel_path, node, source,
+                        parent_class=None,
+                    ))
+                    _walk_children(init, source, rel_path, qn, None,
+                                   definitions, imports, calls)
+            else:
+                # Non-function init (e.g. call expression, object literal):
+                # recurse to capture any call expressions inside it.
+                if init is not None:
+                    _walk(init, source, rel_path, scope, class_qn,
+                          definitions, imports, calls)
         return
 
     # ---- export default function (named or anonymous) --------------
