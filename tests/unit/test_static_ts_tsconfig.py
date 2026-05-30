@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from livegraph.static_ts.tsconfig import TsConfig, load_tsconfig
 
 
