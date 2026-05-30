@@ -310,3 +310,36 @@ check.
 Each check wraps an existing MCP tool — `find_cycles`,
 `layering_violations`, `top_churn`, `hubs` — so the agent's "show me"
 question and CI's "fail the build" question read the same graph data.
+
+## TypeScript / JavaScript support
+
+Phase 13 makes livegraph multi-language. `livegraph build /path/to/repo`
+auto-detects what's there:
+
+- `*.py` → Python pipeline (Phases 1-2).
+- `*.ts`, `*.tsx`, `*.js`, `*.jsx`, `*.mjs`, `*.cjs` → TypeScript pipeline.
+
+Both populate the same Neo4j schema, so an agent can ask
+`find_symbol`, `find_callers`, `find_cycles`, `semantic_search` over a
+mixed Python + TS monorepo and get unified results.
+
+What gets captured for TS:
+
+- **Definitions**: `function`, `const x = () => {}`, `class C { method() {} }`,
+  `export function`, `export default function` (recorded as `default`).
+- **Imports**: ES modules — relative paths (with extension inference
+  and `index.{ts,tsx,…}` resolution), tsconfig `paths` aliases (read
+  from `tsconfig.json` if present), bare specifiers (recorded as
+  `thirdparty`).
+- **Calls**: direct calls (`foo()`), method calls (`obj.m()`), `new C()`.
+  Name-matched against project-defined symbols, per-language.
+
+Qualified names follow the existing `<file_path>::<dotted>` scheme,
+e.g. `src/calc.ts::Calculator.add`.
+
+**Out of scope for v1**: CommonJS `require()`, dynamic `import()`,
+JSX components as call edges, decorators, type-aware method
+resolution, Node runtime tracing (TS CALLS edges are always
+`static=true, runtime=false`).
+
+Override auto-detection with `--lang python` or `--lang typescript`.
