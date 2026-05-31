@@ -14,7 +14,7 @@ class PathFilter:
     """Decides whether a path should be watched.
 
     Filters out:
-      * non-`.py` files
+      * files that are not `.py`, `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, or `.cjs`
       * paths outside `root`
       * any path that has a builtin-ignore segment
       * gitignore-style patterns from `root/.gitignore` (if present)
@@ -36,7 +36,7 @@ class PathFilter:
             rel = path.resolve().relative_to(self._root)
         except ValueError:
             return False
-        if path.suffix != ".py":
+        if path.suffix not in (".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
             return False
         parts = rel.parts
         if any(seg in _BUILTIN_IGNORES for seg in parts):

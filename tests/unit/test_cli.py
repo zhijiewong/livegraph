@@ -215,3 +215,14 @@ def test_embed_command_rebuild_flag(monkeypatch):
     result = runner.invoke(cli.app, ["embed", "--rebuild"])
     assert result.exit_code == 0
     assert captured["rebuild"] is True
+
+
+def test_build_help_mentions_lang():
+    result = runner.invoke(cli.app, ["build", "--help"])
+    assert result.exit_code == 0
+    assert "--lang" in result.stdout
+
+
+def test_build_invalid_lang_exits_2(tmp_path):
+    result = runner.invoke(cli.app, ["build", str(tmp_path), "--lang", "rust"])
+    assert result.exit_code == 2

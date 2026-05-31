@@ -11,13 +11,31 @@ import os
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from livegraph.discovery import discover_python_files, module_name
+from livegraph.discovery import discover_python_files, discover_typescript_files, module_name
 from livegraph.graph.backend import GraphBackend
 from livegraph.graph.writer import GraphWriter
 from livegraph.models import FileRecord
 from livegraph.static.extractor import extract
 from livegraph.static.parser import has_errors, parse_source
 from livegraph.static.resolver import resolve_calls, resolve_imports
+from livegraph.static_ts.extractor import extract as ts_extract
+from livegraph.static_ts.parser import (
+    has_errors as ts_has_errors,
+    is_jsx_file,
+    parse_source as ts_parse_source,
+)
+from livegraph.static_ts.resolver import (
+    resolve_calls as ts_resolve_calls,
+    resolve_imports as ts_resolve_imports,
+)
+from livegraph.static_ts.tsconfig import load_tsconfig
+
+
+_TS_EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
+
+
+def _is_ts(rel: str) -> bool:
+    return rel.endswith(_TS_EXTENSIONS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +61,10 @@ def detect_changes(root: str, backend: GraphBackend,
 
     on_disk: dict[str, str] = {}
     for rel in discover_python_files(root):
+        abs_path = os.path.join(root, rel)
+        with open(abs_path, "rb") as handle:
+            on_disk[rel] = hashlib.sha256(handle.read()).hexdigest()
+    for rel in discover_typescript_files(root):
         abs_path = os.path.join(root, rel)
         with open(abs_path, "rb") as handle:
             on_disk[rel] = hashlib.sha256(handle.read()).hexdigest()
@@ -90,14 +112,26 @@ def _read_project_defined(backend: GraphBackend, project: str) -> set[str]:
 
 def _read_project_modules(backend: GraphBackend,
                           project: str) -> dict[str, str]:
-    """Return the {dotted_module_name: file_path} map for the project."""
+    """Return the {dotted_module_name: file_path} map for the project (Python only)."""
     rows = backend.execute(
         "MATCH (:Project {name: $project})-[:CONTAINS]->(f:File) "
         "RETURN f.path AS path",
         project=project,
     )
-    paths = [row["path"] for row in rows]
+    paths = [row["path"] for row in rows
+             if not row.get("path", "").endswith(_TS_EXTENSIONS)]
     return {module_name(p): p for p in paths}
+
+
+def _collect_ts_files(backend: GraphBackend, project: str) -> set[str]:
+    """Return the set of TS/JS file paths stored in the graph for the project."""
+    rows = backend.execute(
+        "MATCH (:Project {name: $project})-[:CONTAINS]->(f:File) "
+        "RETURN f.path AS path",
+        project=project,
+    )
+    return {r["path"] for r in rows
+            if r.get("path", "").endswith(_TS_EXTENSIONS)}
 
 
 def _read_old_qns_for_file(backend: GraphBackend, project: str,
@@ -137,7 +171,10 @@ def reingest_files(
             source = handle.read()
         new_hash = changeset.hashes.get(rel)
 
-        broken = has_errors(parse_source(source))
+        if _is_ts(rel):
+            broken = ts_has_errors(ts_parse_source(source, jsx=is_jsx_file(rel)))
+        else:
+            broken = has_errors(parse_source(source))
         if broken:
             parse_errors += 1
             logger.warning("skipping unparseable file: %s", rel)
@@ -148,7 +185,10 @@ def reingest_files(
             )
             continue
 
-        defs, imports, raw_calls = extract(rel, source)
+        if _is_ts(rel):
+            defs, imports, raw_calls = ts_extract(rel, source)
+        else:
+            defs, imports, raw_calls = extract(rel, source)
         new_qns = {d.qualified_name for d in defs}
 
         if rel in changeset.changed:
@@ -174,11 +214,24 @@ def reingest_files(
         project_defined = _read_project_defined(backend, project)
         project_modules = _read_project_modules(backend, project)
 
-        for _rel, imports, raw_calls in pending_files:
-            edges = resolve_calls(raw_calls, project_defined)
-            writer.write_calls(edges)
+        py_defined = {qn for qn in project_defined
+                      if "::" in qn and not qn.split("::", 1)[0].endswith(_TS_EXTENSIONS)}
+        ts_defined = {qn for qn in project_defined
+                      if "::" in qn and qn.split("::", 1)[0].endswith(_TS_EXTENSIONS)}
 
-            resolved_imports = resolve_imports(imports, project_modules)
+        ts_project_files = _collect_ts_files(backend, project)
+        tsconfig = load_tsconfig(root)
+
+        for rel, imports, raw_calls in pending_files:
+            if _is_ts(rel):
+                edges = ts_resolve_calls(raw_calls, ts_defined)
+                resolved_imports = ts_resolve_imports(
+                    imports, project_files=ts_project_files, tsconfig=tsconfig,
+                )
+            else:
+                edges = resolve_calls(raw_calls, py_defined)
+                resolved_imports = resolve_imports(imports, project_modules)
+            writer.write_calls(edges)
             _write_imports_for_file(backend, resolved_imports, batch_size)
 
     return UpdateSummary(
