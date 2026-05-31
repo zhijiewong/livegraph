@@ -29,3 +29,11 @@ def test_ignores_non_ts_files(tmp_path: Path):
     (tmp_path / "image.png").write_bytes(b"\x89PNG")
     out = sorted(discover_typescript_files(str(tmp_path)))
     assert out == ["a.ts"]
+
+
+def test_skips_declaration_d_ts_files(tmp_path: Path):
+    """`.d.ts` files are type declarations, not source — skip them."""
+    (tmp_path / "a.ts").write_text("// source\n")
+    (tmp_path / "global.d.ts").write_text("declare const X: number;\n")
+    out = sorted(discover_typescript_files(str(tmp_path)))
+    assert out == ["a.ts"]

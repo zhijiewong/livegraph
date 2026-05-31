@@ -28,7 +28,8 @@ def discover_typescript_files(root: str) -> Iterator[str]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
         for filename in filenames:
-            if filename.endswith(_TS_EXTENSIONS):
+            if filename.endswith(_TS_EXTENSIONS) \
+                    and not filename.endswith(".d.ts"):
                 abs_path = os.path.join(dirpath, filename)
                 yield os.path.relpath(abs_path, root).replace("\\", "/")
 
